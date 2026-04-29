@@ -1,4 +1,5 @@
+@echo off
 rmdir /s /q dist
 
 uv build
-uv publish --index testpypi
+uv run --no-project publish.py testpypi

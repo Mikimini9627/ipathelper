@@ -1,9 +1,6 @@
 from ctypes import *
-from ctypes import wintypes
-from sys import maxsize
-import importlib.resources as pkg_resources
 
-global lib
+lib = None
 
 KAISAI_SAPPORO = 0
 KAISAI_HAKODATE = 1
@@ -128,144 +125,41 @@ class ST_BET_DATA(Structure):
 class ST_BET_DATA_WIN5(Structure):
     _fields_ = [("Kingaku", c_uint), ("Youbi", c_byte), ("Umaban", c_uint * 5)]
 
-def _get_dll_path():
-    '''
-        アーキテクチャに応じたDLLのパスを取得する。
-        インストール済み環境・ソースからの実行どちらでも動作する。
-    '''
-    import os
-    arch = "x64" if maxsize > 2 ** 32 else "x86"
-    dll_name = "IpatHelper.dll"
-
-    # Python 3.9+ の importlib.resources を使用してパッケージ内リソースを解決
-    # zipimport (zipファイル内のパッケージ) にも対応
-    try:
-        ref = pkg_resources.files("ipathelper") / arch / dll_name
-        with pkg_resources.as_file(ref) as dll_path:
-            return str(dll_path)
-    except (TypeError, FileNotFoundError, ModuleNotFoundError):
-        pass
-
-    # フォールバック: __file__ の相対パス (ソース実行時など)
-    base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base, arch, dll_name)
-
-
-def init():
-    '''
-        モジュールのイニシャライズ
-    '''
-
-    global lib
-
-    import os
-    dll_path = _get_dll_path()
-
-    if not os.path.exists(dll_path):
-        return False
-
-    lib = windll.LoadLibrary(str(dll_path))
-
-    lib.Login.restype = c_uint
-    lib.Login.argtypes = [c_char_p, c_char_p, c_char_p, c_char_p]
-
-    lib.Logout.restype = c_uint
-    lib.Logout.argtypes = []
-
-    lib.Deposit.restype = c_uint
-    lib.Deposit.argtypes = [c_uint, c_ushort]
-
-    lib.Withdraw.restype = c_uint
-    lib.Withdraw.argtypes = [c_ushort]
-
-    lib.GetPurchaseData.restype = c_uint
-    lib.GetPurchaseData.argtypes = [c_void_p]
-
-    lib.ReleasePurchaseData.restype = None
-    lib.ReleasePurchaseData.argtypes = [POINTER(ST_PURCHASE_DATA_INTERNAL)]
-
-    lib.GetBetInstance.restype = c_uint
-    lib.GetBetInstance.argtypes = [c_byte, c_byte, c_ushort, c_byte, c_byte, c_byte, c_byte, c_uint, c_char_p, c_void_p]
-
-    lib.Bet.restype = c_uint
-    lib.Bet.argtypes = [c_void_p, c_ushort, c_ushort]
-
-    lib.GetBetInstanceWin5.restype = c_uint
-    lib.GetBetInstanceWin5.argtypes = [c_uint, c_ushort, c_byte, c_byte, c_char_p, c_void_p]
-
-    lib.BetWin5.restype = c_uint
-    lib.BetWin5.argtypes = [c_void_p, c_ushort]
-
-    lib.SetAutoDepositFlag.restype = c_uint
-    lib.SetAutoDepositFlag.argtypes = [c_bool, c_ushort, c_ushort]
-
-    if maxsize > 2 ** 32:
-        windll.kernel32.FreeLibrary.argtypes = [wintypes.HMODULE]
-
-def uninit():
-    '''
-        モジュールのファイナライズ
-    '''
-
-    global lib
-
-    libraryHandle = lib._handle
-    del lib
-
-    windll.kernel32.FreeLibrary(libraryHandle)
 
 def login(iNetId : str, id : str, password : str, pars : str):
     '''
         ログイン処理実行
     '''
-
-    global lib
-
     return lib.Login(iNetId.encode('utf-8'), id.encode('utf-8'), password.encode('utf-8'), pars.encode('utf-8'))
 
 def logout():
     '''
         ログアウト処理実行
     '''
-
-    global lib
-
     return lib.Logout()
 
 def deposit(depositValue : int, retryCount : int = DEFAULT_RETRY_COUNT):
     '''
         入金処理実行
     '''
-
-    global lib
-
     return lib.Deposit(depositValue, retryCount)
 
 def withdraw(retryCount : int = DEFAULT_RETRY_COUNT):
     '''
         出金処理実行
     '''
-
-    global lib
-
     return lib.Withdraw(retryCount)
 
 def get_purchase_data(purchaseData : ST_PURCHASE_DATA):
     '''
         購入状況取得処理実行
     '''
-
-    global lib
-
-    # 内部的な構造体のインスタンスを生成する
     tempPurchaseData = ST_PURCHASE_DATA_INTERNAL()
 
-    # 購入状況を取得する
     returnValue = lib.GetPurchaseData(byref(tempPurchaseData))
     if (returnValue & 1) != 1:
         return returnValue
     
-    # 返却用のデータに値を設定
     purchaseData.TicketCount = tempPurchaseData.TicketCount
     purchaseData.AvailableBetCount = tempPurchaseData.AvailableBetCount
     purchaseData.Balance = tempPurchaseData.Balance
@@ -279,23 +173,17 @@ def get_purchase_data(purchaseData : ST_PURCHASE_DATA):
         lib.ReleasePurchaseData(byref(tempPurchaseData))
         return returnValue
 
-    # 馬券データ(全て)を格納するためのバッファを確保
     allTicketBytes = bytearray(string_at(tempPurchaseData.TicketData, \
         sizeof(ST_TICKET_DATA_INTERNAL) * tempPurchaseData.TicketCount))
     
     for i in range(tempPurchaseData.TicketCount):
-        # 1つ分の構造体データを格納するバッファを確保して情報を格納する
         oneTicketBytes = bytearray(sizeof(ST_TICKET_DATA_INTERNAL))
         for j in range(sizeof(ST_TICKET_DATA_INTERNAL)):   
             oneTicketBytes[j] = allTicketBytes[j + i * sizeof(ST_TICKET_DATA_INTERNAL)]
 
-        # 馬券データ(1個)をインスタンスに変換
         oneTicketData = ST_TICKET_DATA_INTERNAL.from_buffer(oneTicketBytes, 0)
-
-        # 返却用の馬券データ(1個)を生成
         tempTicketData = ST_TICKET_DATA()
 
-        # 返却用のデータに値を設定
         tempTicketData.DayFlag = oneTicketData.DayFlag
         tempTicketData.DetailCount = oneTicketData.DetailCount
         tempTicketData.Hour = oneTicketData.Hour
@@ -308,20 +196,16 @@ def get_purchase_data(purchaseData : ST_PURCHASE_DATA):
             lib.ReleasePurchaseData(byref(tempPurchaseData))
             return returnValue
 
-        # 詳細データ(全て)を格納するためのバッファを確保    
         allDetailBytes = bytearray(string_at(oneTicketData.DetailData, \
             sizeof(ST_TICKET_DATA_DETAIL) * oneTicketData.DetailCount))
 
         for j in range(oneTicketData.DetailCount):
-            # 1つ分の構造体データを格納するバッファを確保して情報を格納する
             oneDetailBytes = bytearray(sizeof(ST_TICKET_DATA_DETAIL))
             for k in range(sizeof(ST_TICKET_DATA_DETAIL)):
                 oneDetailBytes[k] = allDetailBytes[k + j * sizeof(ST_TICKET_DATA_DETAIL)]
 
-            # 詳細データ(1個)をインスタンスに変換
             tempTicketData.DetailData.append(ST_TICKET_DATA_DETAIL.from_buffer(oneDetailBytes, 0))
         
-        # 馬券データを引数に追加する
         purchaseData.TicketData.append(tempTicketData)
     
     lib.ReleasePurchaseData(byref(tempPurchaseData))
@@ -333,43 +217,28 @@ def get_bet_instance(kaisai : int, raceNo : int, year : int, month : int, day : 
     '''
         馬券購入用インスタンス取得処理
     '''
-    
-    global lib
-
     return lib.GetBetInstance(kaisai, raceNo, year, month, day, houshiki, shikibetsu, kingaku, kaime.encode('utf-8'), byref(betData))
 
 def get_bet_instance_win5(kingaku : int, year : int, month : int, day : int, kaime : str, betData : ST_BET_DATA_WIN5):
     '''
         馬券購入用インスタンス取得処理(WIN5)
     '''
-    
-    global lib
-
     return lib.GetBetInstanceWin5(kingaku, year, month, day, kaime.encode('utf-8'), byref(betData))
 
-def bet(betDataList : list, listCount : int, waitMiliSeconds  : int):
+def bet(betDataList : list, listCount : int, waitMiliSeconds : int):
     '''
         馬券購入処理実行
     '''
-
-    global lib
-    
     return lib.Bet(betDataList, listCount, waitMiliSeconds)
 
 def bet_win5(betData : ST_BET_DATA_WIN5, waitMiliSeconds : int):
     '''
         馬券購入処理実行(WIN5)
     '''
-
-    global lib
-    
     return lib.BetWin5(betData, waitMiliSeconds)
 
 def set_auto_deposit_flag(enable : bool, depositValue : int, confirmTimeout : int):
     '''
         自動入金機能フラグ設定
     '''
-
-    global lib
-
     return lib.SetAutoDepositFlag(enable, depositValue, confirmTimeout)
