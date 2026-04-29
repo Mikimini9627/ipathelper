@@ -1,4 +1,4 @@
 rmdir /s /q dist
 
 uv build
-uvx twine upload --repository pypi dist/*
+uv publish uv publish --index testpypi

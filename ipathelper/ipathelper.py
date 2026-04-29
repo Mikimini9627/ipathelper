@@ -1,7 +1,7 @@
 from ctypes import *
 from ctypes import wintypes
-from pathlib import *
-from sys import *
+from sys import maxsize
+import importlib.resources as pkg_resources
 
 global lib
 
@@ -84,6 +84,8 @@ FAILED_CHIHOU = 8
 FAILED_COMMUNICATE_CHUOU = 16
 FAILED_COMMUNICATE_CHIHOU = 32
 
+DEFAULT_RETRY_COUNT = 10
+
 class ST_TICKET_DATA:
     def __init__(self):
         self.DayFlag = 0
@@ -126,6 +128,29 @@ class ST_BET_DATA(Structure):
 class ST_BET_DATA_WIN5(Structure):
     _fields_ = [("Kingaku", c_uint), ("Youbi", c_byte), ("Umaban", c_uint * 5)]
 
+def _get_dll_path():
+    '''
+        アーキテクチャに応じたDLLのパスを取得する。
+        インストール済み環境・ソースからの実行どちらでも動作する。
+    '''
+    import os
+    arch = "x64" if maxsize > 2 ** 32 else "x86"
+    dll_name = "IpatHelper.dll"
+
+    # Python 3.9+ の importlib.resources を使用してパッケージ内リソースを解決
+    # zipimport (zipファイル内のパッケージ) にも対応
+    try:
+        ref = pkg_resources.files("ipathelper") / arch / dll_name
+        with pkg_resources.as_file(ref) as dll_path:
+            return str(dll_path)
+    except (TypeError, FileNotFoundError, ModuleNotFoundError):
+        pass
+
+    # フォールバック: __file__ の相対パス (ソース実行時など)
+    base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, arch, dll_name)
+
+
 def init():
     '''
         モジュールのイニシャライズ
@@ -133,19 +158,13 @@ def init():
 
     global lib
 
-    #Get the directory where the running file resides
-    dirName = str(Path(__file__).parent)
+    import os
+    dll_path = _get_dll_path()
 
-    #Check dll exists
-    if maxsize > 2 ** 32:
-        libPath = Path(dirName + "\\x64\\IpatHelper.dll")
-    else:
-        libPath = Path(dirName + "\\x86\\IpatHelper.dll")
-
-    if libPath.exists() == False:
+    if not os.path.exists(dll_path):
         return False
 
-    lib = windll.LoadLibrary(str(libPath))
+    lib = windll.LoadLibrary(str(dll_path))
 
     lib.Login.restype = c_uint
     lib.Login.argtypes = [c_char_p, c_char_p, c_char_p, c_char_p]
@@ -154,10 +173,10 @@ def init():
     lib.Logout.argtypes = []
 
     lib.Deposit.restype = c_uint
-    lib.Deposit.argtypes = [c_ushort]
+    lib.Deposit.argtypes = [c_uint, c_ushort]
 
     lib.Withdraw.restype = c_uint
-    lib.Withdraw.argtypes = []
+    lib.Withdraw.argtypes = [c_ushort]
 
     lib.GetPurchaseData.restype = c_uint
     lib.GetPurchaseData.argtypes = [c_void_p]
@@ -213,23 +232,23 @@ def logout():
 
     return lib.Logout()
 
-def deposit(depositValue : int):
+def deposit(depositValue : int, retryCount : int = DEFAULT_RETRY_COUNT):
     '''
         入金処理実行
     '''
 
     global lib
 
-    return lib.Deposit(depositValue)
+    return lib.Deposit(depositValue, retryCount)
 
-def withdraw():
+def withdraw(retryCount : int = DEFAULT_RETRY_COUNT):
     '''
         出金処理実行
     '''
 
     global lib
 
-    return lib.Withdraw()
+    return lib.Withdraw(retryCount)
 
 def get_purchase_data(purchaseData : ST_PURCHASE_DATA):
     '''
