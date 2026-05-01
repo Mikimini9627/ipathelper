@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ipathelper"
-version = "2.0.0"
+version = "2.0.1"
 description = "PythonでIPATに投票する際に利用可能なモジュール"
 readme = "README.rst"
 authors = [
