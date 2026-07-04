@@ -102,7 +102,7 @@ def _init():
     _core.lib.GetBetInstanceWin5.argtypes = [c_uint, c_ushort, c_byte, c_byte, c_char_p, c_void_p]
 
     _core.lib.BetWin5.restype = c_uint
-    _core.lib.BetWin5.argtypes = [c_void_p, c_ushort]
+    _core.lib.BetWin5.argtypes = [ST_BET_DATA_WIN5, c_ushort]
 
     _core.lib.SetAutoDepositFlag.restype = c_uint
     _core.lib.SetAutoDepositFlag.argtypes = [c_bool, c_ushort, c_ushort]
