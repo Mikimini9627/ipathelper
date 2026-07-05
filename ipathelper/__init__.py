@@ -18,8 +18,10 @@ from .ipathelper import (
     HOUSHIKI_NORMAL, HOUSHIKI_FORMATION, HOUSHIKI_BOX,
     # 定数: 式別
     SHIKIBETSU_WIN, SHIKIBETSU_PLACE, SHIKIBETSU_BRACKETQUINELLA,
-    SHIKIBETSU_QUINELLAPLACE, SHIKIBETSU_QUINELLA, SHIKIBETSU_EXACTA,
+    SHIKIBETSU_QUINELLA, SHIKIBETSU_QUINELLAPLACE, SHIKIBETSU_EXACTA,
     SHIKIBETSU_TRIO, SHIKIBETSU_TRIFECTA,
+    # 定数: オッズ状態
+    ODDS_STATUS_NORMAL, ODDS_STATUS_CANCEL, ODDS_STATUS_UNACQUIRED,
     # 定数: その他
     DAYTYPE_TODAY, DAYTYPE_BEFORE,
     BETFLAG_NORMAL, BETFLAG_WIN5, BETFLAG_INTERNAL,
@@ -36,10 +38,11 @@ from .ipathelper import (
     ST_TICKET_DATA, ST_PURCHASE_DATA,
     ST_TICKET_DATA_DETAIL, ST_TICKET_DATA_INTERNAL,
     ST_PURCHASE_DATA_INTERNAL, ST_BET_DATA, ST_BET_DATA_WIN5,
+    ST_ODDS_DATA, ST_ODDS_DETAIL, ST_ODDS_DATA_INTERNAL,
     # 関数
     login, logout, deposit, withdraw, get_purchase_data,
     get_bet_instance, get_bet_instance_win5, bet, bet_win5,
-    set_auto_deposit_flag,
+    set_auto_deposit_flag, get_odds,
 )
 import ipathelper.ipathelper as _core
 
@@ -106,6 +109,12 @@ def _init():
 
     _core.lib.SetAutoDepositFlag.restype = c_uint
     _core.lib.SetAutoDepositFlag.argtypes = [c_bool, c_ushort, c_ushort]
+
+    _core.lib.GetOdds.restype = c_uint
+    _core.lib.GetOdds.argtypes = [c_ushort, c_byte, c_byte, c_void_p]
+
+    _core.lib.ReleaseOddsData.restype = None
+    _core.lib.ReleaseOddsData.argtypes = [POINTER(ST_ODDS_DATA_INTERNAL)]
 
     if maxsize > 2 ** 32:
         windll.kernel32.FreeLibrary.argtypes = [wintypes.HMODULE]
