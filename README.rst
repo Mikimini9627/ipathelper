@@ -284,7 +284,7 @@ ST_BET_DATA
    get_bet_instance(KAISAI_TOKYO, 11, 2026, 4, 5,
                     HOUSHIKI_NORMAL, SHIKIBETSU_WIN, 100, "1", betData)
 
-   print(betData.unTotalAmount)  # 合計購入金額（円）
+   print(betData.TotalAmount)  # 合計購入金額（円）
 
 .. list-table::
    :header-rows: 1
@@ -293,7 +293,7 @@ ST_BET_DATA
    * - フィールド名
      - 型
      - 説明
-   * - ``unTotalAmount``
+   * - ``TotalAmount``
      - int
      - 合計購入金額（``get_bet_instance`` が自動計算）
 
@@ -315,32 +315,32 @@ ST_PURCHASE_DATA
    * - フィールド名
      - 型
      - 説明
-   * - ``usRemainBetCount``
+   * - ``AvailableBetCount``
      - int
      - 残購入可能件数
-   * - ``unBalance``
+   * - ``Balance``
      - int
      - 現在残高（円）
-   * - ``unDayPurchase``
+   * - ``DayPurchase``
      - int
      - 当日累計購入金額（円）
-   * - ``unDayPayout``
+   * - ``DayHaraimodosi``
      - int
      - 当日累計払戻金額（円）
-   * - ``unTotalPurchase``
+   * - ``TotalPurchase``
      - int
      - 合計購入金額（円）
-   * - ``unTotalPayout``
+   * - ``TotalHaraimodosi``
      - int
      - 合計払戻金額（円）
-   * - ``unTicketCount``
+   * - ``TicketCount``
      - int
      - 馬券情報の件数
-   * - ``pobjTicketData``
+   * - ``TicketData``
      - array
      - 馬券情報の配列（下記参照）
 
-``pobjTicketData`` の各要素（ST_TICKET_DATA）:
+``TicketData`` の各要素（ST_TICKET_DATA）:
 
 .. list-table::
    :header-rows: 1
@@ -349,32 +349,32 @@ ST_PURCHASE_DATA
    * - フィールド名
      - 型
      - 説明
-   * - ``ucDayFlag``
+   * - ``DayFlag``
      - int
      - 購入日（1:当日 / 2:前日）
-   * - ``ucReceiptNo``
+   * - ``ReceiptNo``
      - int
      - 受付番号
-   * - ``ucHour``
+   * - ``Hour``
      - int
      - 購入時刻（時）
-   * - ``ucMinute``
+   * - ``Minute``
      - int
      - 購入時刻（分）
-   * - ``unKingaku``
+   * - ``Kingaku``
      - int
      - 購入金額（円）
-   * - ``unPayout``
+   * - ``Payout``
      - int
      - 払戻金額（円）
-   * - ``unDetailCount``
+   * - ``DetailCount``
      - int
      - 詳細情報の件数
-   * - ``pobjDetail``
+   * - ``DetailData``
      - array
      - 詳細情報の配列（下記参照）
 
-``pobjDetail`` の各要素（ST_TICKET_DATA_DETAIL）:
+``DetailData`` の各要素（ST_TICKET_DATA_DETAIL）:
 
 .. list-table::
    :header-rows: 1
@@ -383,22 +383,22 @@ ST_PURCHASE_DATA
    * - フィールド名
      - 型
      - 説明
-   * - ``ucDecisionFlag``
+   * - ``DecisionFlag``
      - int
      - 確定フラグ（DECISIONFLAG 定数）
-   * - ``usKaisai``
+   * - ``Kaisai``
      - int
      - 開催場（KAISAI 定数）
-   * - ``ucRaceNo``
+   * - ``RaceNo``
      - int
      - レース番号
-   * - ``ucMethod``
+   * - ``Method``
      - int
      - 方式（HOUSHIKI 定数）
-   * - ``ucType``
+   * - ``Type``
      - int
      - 式別（SHIKIBETSU 定数）
-   * - ``ucMulti``
+   * - ``Multi``
      - int
      - マルチ購入フラグ（1: マルチあり）
 
@@ -593,7 +593,7 @@ get_bet_instance
      - 
      - [out] ST_BET_DATA インスタンス
 
-成功すると ``betData.unTotalAmount`` に合計購入金額が格納されます。
+成功すると ``betData.TotalAmount`` に合計購入金額が格納されます。
 
 買い目文字列の書式
 ------------------
@@ -731,25 +731,139 @@ get_purchase_data
    purchaseData = ST_PURCHASE_DATA()
    ret = get_purchase_data(purchaseData)
    if (ret & 1) == 1:
-       print(f"残高: {purchaseData.unBalance} 円")
-   release_purchase_data(purchaseData)
+       print(f"残高: {purchaseData.Balance} 円")
+       for i in range(purchaseData.TicketCount):
+           ticket = purchaseData.TicketData[i]
+           print(f"受付No.{ticket.ReceiptNo} {ticket.Hour:02d}:{ticket.Minute:02d} {ticket.Kingaku}円")
 
-.. warning::
+.. note::
 
-   取得した ``ST_PURCHASE_DATA`` は使用後に必ず ``release_purchase_data()`` で解放してください。
-   解放を忘れるとメモリリークが発生します。
+   ネイティブ側で確保されたメモリは ``get_purchase_data()`` 内部で自動的に解放されます。
+   利用者側での解放処理は不要です（返却される ``ST_PURCHASE_DATA`` は Python 側にコピー済みです）。
 
-release_purchase_data
-=====================
+get_odds
+========
 
-``get_purchase_data()`` が内部で確保したメモリを解放します。
+指定レース・式別のオッズを取得します（**中央競馬・地方競馬に対応**）。
+単勝・複勝は基本オッズ、枠連〜三連単は全通りのオッズ表を取得します。
 
 .. code-block:: python
 
-   release_purchase_data(purchaseData)
+   oddsData = ST_ODDS_DATA()
+   ret = get_odds(place, race_no, shikibetsu, oddsData)
 
-- ``get_purchase_data()`` の成否にかかわらず **必ず呼び出してください** 。
-- ``None`` を渡しても安全に動作します。
+.. list-table::
+   :header-rows: 1
+   :widths: 20 10 70
+
+   * - 引数
+     - 型
+     - 説明
+   * - ``place``
+     - int
+     - 開催場（KAISAI 定数）
+   * - ``race_no``
+     - int
+     - レース番号
+   * - ``shikibetsu``
+     - int
+     - 式別（SHIKIBETSU 定数）
+   * - ``oddsData``
+     -
+     - [out] ST_ODDS_DATA インスタンス
+
+- ネイティブ側のメモリは関数内部で自動解放されます。利用者側での解放は不要です。
+- オッズは 10 倍の整数（``Odds``）で格納されます。実際の倍率は ``Odds / 10.0``。
+- 複勝・ワイドは下限を ``Odds``、上限を ``OddsHigh`` に格納します。
+- ``Status`` が 1（発売中止）／2（オッズ未取得）の場合、``Odds`` / ``OddsHigh`` は 0 です。
+- 海外開催・当日非開催の場合は ``UNSUCCESS`` を返します。
+
+``oddsData.OddsDetail`` の各要素（ST_ODDS_DETAIL）:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - フィールド名
+     - 説明
+   * - ``Type``
+     - 式別（SHIKIBETSU 定数）
+   * - ``Horse1`` / ``Horse2`` / ``Horse3``
+     - 馬番/枠番（単複は1頭、馬連・ワイド・馬単・枠連は2頭、三連系は3頭）
+   * - ``Status``
+     - 0:通常 1:発売中止 2:オッズ未取得
+   * - ``Odds`` / ``OddsHigh``
+     - オッズ×10（複勝・ワイドは下限/上限）
+
+.. code-block:: python
+
+   oddsData = ST_ODDS_DATA()
+   ret = get_odds(KAISAI_TOKYO, 11, SHIKIBETSU_QUINELLA, oddsData)
+   if (ret & 1) == 1:
+       print(f"オッズ更新時刻: {oddsData.OddsTime} / 明細数: {oddsData.DetailCount}")
+       for d in oddsData.OddsDetail:
+           kaime = str(d.Horse1)
+           if d.Horse2:
+               kaime += "-" + str(d.Horse2)
+           if d.Horse3:
+               kaime += "-" + str(d.Horse3)
+           odds = f"{d.Odds / 10.0:.1f}" if d.Status == 0 else "-"
+           print(f"  {kaime} : {odds}")
+
+get_race_card
+=============
+
+指定レースの出馬表（出走馬一覧）を取得します（**中央競馬・地方競馬に対応**）。
+各出走馬の枠番・馬番・馬名・性齢・馬体重・騎手・斤量・調教師・単勝人気・単勝/複勝オッズを取得します。
+
+.. code-block:: python
+
+   raceCard = ST_RACECARD_DATA()
+   ret = get_race_card(place, race_no, raceCard)
+
+- ネイティブ側のメモリは関数内部で自動解放されます。利用者側での解放は不要です。
+- ``raceCard.EntryData`` の各要素は ``ST_ENTRY_DETAIL`` です。
+- 馬名・騎手名・調教師名などの文字列フィールドは **UTF-8 の bytes** です。利用時は ``.decode('utf-8')`` してください。
+- 斤量・オッズは 10 倍の整数で格納されます。実際の値は ``/ 10.0``。
+
+``raceCard.EntryData`` の各要素（ST_ENTRY_DETAIL）:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - フィールド名
+     - 説明
+   * - ``Wakuban`` / ``Umaban``
+     - 枠番 / 馬番
+   * - ``HorseName`` / ``Sex`` / ``Age``
+     - 馬名(bytes) / 性別(bytes) / 年齢
+   * - ``WeightStatus`` / ``Weight`` / ``WeightDiffCode`` / ``WeightDiff``
+     - 馬体重の状態(0:通常 1:未発表 2:出走取消 3:計量不能) / 重量(kg) / 増減符号 / 増減量
+   * - ``Apprentice``
+     - 見習騎手コード(0:なし 1〜5:減量 9:女性騎手2kg減)
+   * - ``JockeyName`` / ``Burden`` / ``TrainerName``
+     - 騎手名(bytes) / 斤量×10 / 調教師名(bytes)
+   * - ``WinPopular``
+     - 単勝人気(0:データなし)
+   * - ``WinOddsStatus`` / ``WinOdds``
+     - 単勝オッズの状態(0:通常 1:発売中止 2:未取得) / オッズ×10
+   * - ``PlaceOddsStatus`` / ``PlaceOddsLow`` / ``PlaceOddsHigh``
+     - 複勝オッズの状態 / 下限×10 / 上限×10
+
+.. code-block:: python
+
+   raceCard = ST_RACECARD_DATA()
+   ret = get_race_card(KAISAI_TOKYO, 11, raceCard)
+   if (ret & 1) == 1:
+       print(f"オッズ更新時刻: {raceCard.OddsTime} / 出走頭数: {raceCard.EntryCount}")
+       for e in raceCard.EntryData:
+           name = e.HorseName.decode('utf-8')
+           sex = e.Sex.decode('utf-8')
+           jockey = e.JockeyName.decode('utf-8')
+           win = f"{e.WinOdds / 10.0:.1f}" if e.WinOddsStatus == 0 else "-"
+           print(f"  {e.Umaban:2d}番 {name} {sex}{e.Age} "
+                 f"斤量{e.Burden / 10.0:.1f} 騎手:{jockey} 単勝:{win} 人気:{e.WinPopular}")
 
 --------
 使用例
@@ -783,7 +897,7 @@ release_purchase_data
                print("購入情報の構築に失敗しました。")
                return
 
-           print(f"合計購入金額: {betData.unTotalAmount} 円")
+           print(f"合計購入金額: {betData.TotalAmount} 円")
 
            # 馬券購入
            betDataList = (ST_BET_DATA * 1)()
@@ -975,27 +1089,27 @@ WIN5 の購入
            ret = get_purchase_data(purchaseData)
 
            if (ret & 1) == 1:
-               print(f"残高          : {purchaseData.unBalance} 円")
-               print(f"残購入可能数  : {purchaseData.usRemainBetCount} 件")
-               print(f"当日購入金額  : {purchaseData.unDayPurchase} 円")
-               print(f"当日払戻金額  : {purchaseData.unDayPayout} 円")
-               print(f"累計購入金額  : {purchaseData.unTotalPurchase} 円")
-               print(f"累計払戻金額  : {purchaseData.unTotalPayout} 円")
-               print(f"馬券件数      : {purchaseData.unTicketCount} 件")
+               print(f"残高          : {purchaseData.Balance} 円")
+               print(f"残購入可能数  : {purchaseData.AvailableBetCount} 件")
+               print(f"当日購入金額  : {purchaseData.DayPurchase} 円")
+               print(f"当日払戻金額  : {purchaseData.DayHaraimodosi} 円")
+               print(f"累計購入金額  : {purchaseData.TotalPurchase} 円")
+               print(f"累計払戻金額  : {purchaseData.TotalHaraimodosi} 円")
+               print(f"馬券件数      : {purchaseData.TicketCount} 件")
                print("--------------------------------")
 
-               for i in range(purchaseData.unTicketCount):
-                   ticket = purchaseData.pobjTicketData[i]
-                   day_label = "当日" if ticket.ucDayFlag == 1 else "前日"
-                   print(f"[受付No.{ticket.ucReceiptNo:02d}] "
+               for i in range(purchaseData.TicketCount):
+                   ticket = purchaseData.TicketData[i]
+                   day_label = "当日" if ticket.DayFlag == 1 else "前日"
+                   print(f"[受付No.{ticket.ReceiptNo:02d}] "
                          f"{day_label} "
-                         f"{ticket.ucHour:02d}:{ticket.ucMinute:02d}購入 "
-                         f"{ticket.unKingaku}円 "
-                         f"(払戻: {ticket.unPayout}円) "
-                         f"詳細{ticket.unDetailCount}点")
+                         f"{ticket.Hour:02d}:{ticket.Minute:02d}購入 "
+                         f"{ticket.Kingaku}円 "
+                         f"(払戻: {ticket.Payout}円) "
+                         f"詳細{ticket.DetailCount}点")
 
-                   for j in range(ticket.unDetailCount):
-                       detail = ticket.pobjDetail[j]
+                   for j in range(ticket.DetailCount):
+                       detail = ticket.DetailData[j]
                        status_map = {
                            DECISIONFLAG_HIT:      "的中",
                            DECISIONFLAG_MISS:     "外れ",
@@ -1004,13 +1118,12 @@ WIN5 の購入
                            DECISIONFLAG_NORMAL:   "確定",
                            DECISIONFLAG_DEADLINE: "締切",
                        }
-                       status = status_map.get(detail.ucDecisionFlag, "不明")
-                       multi  = "[マルチ]" if detail.ucMulti else ""
+                       status = status_map.get(detail.DecisionFlag, "不明")
+                       multi  = "[マルチ]" if detail.Multi else ""
                        print(f"  詳細[{j}]: {status} {multi} "
-                             f"R{detail.ucRaceNo} 方式:{detail.ucMethod} 式別:{detail.ucType}")
+                             f"R{detail.RaceNo} 方式:{detail.Method} 式別:{detail.Type}")
 
-           # 必ず解放する
-           release_purchase_data(purchaseData)
+           # メモリ解放は get_purchase_data 内部で自動実行される
 
        finally:
            logout()
