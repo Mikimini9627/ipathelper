@@ -865,6 +865,49 @@ get_race_card
            print(f"  {e.Umaban:2d}番 {name} {sex}{e.Age} "
                  f"斤量{e.Burden / 10.0:.1f} 騎手:{jockey} 単勝:{win} 人気:{e.WinPopular}")
 
+get_notice
+==========
+
+現在有効なお知らせを取得します（**中央競馬・地方競馬に対応**）。
+強制表示お知らせ本文（``Message``）に加え、お知らせ一覧（``ItemData``）を全件取得します。
+
+.. code-block:: python
+
+   notice = ST_NOTICE_DATA()
+   ret = get_notice(notice)
+
+- ネイティブ側のメモリは関数内部で自動解放されます。利用者側での解放は不要です。
+- ``notice.ItemData`` の各要素は ``ST_NOTICE_ITEM`` です。
+- ``Title`` / ``Date`` / ``Url`` などの文字列フィールドは **UTF-8 の bytes** です。利用時は ``.decode('utf-8')`` してください。
+- お知らせが無い場合は ``Message`` が空文字・``ItemCount`` が 0 で成功します。
+
+``notice.ItemData`` の各要素（ST_NOTICE_ITEM）:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - フィールド名
+     - 説明
+   * - ``Title`` / ``Date``
+     - タイトル(bytes) / 日付テキスト(bytes)
+   * - ``Url`` / ``Icon`` / ``Color``
+     - リンクURL(bytes) / アイコン(bytes) / 日付表示色(bytes)
+
+.. code-block:: python
+
+   notice = ST_NOTICE_DATA()
+   ret = get_notice(notice)
+   if (ret & 1) == 1:
+       if notice.Message:
+           print(f"強制表示: {notice.Message}")
+       print(f"お知らせ {notice.ItemCount} 件")
+       for item in notice.ItemData:
+           title = item.Title.decode('utf-8')
+           date = item.Date.decode('utf-8')
+           url = item.Url.decode('utf-8')
+           print(f"  [{date}] {title}  {url}")
+
 --------
 使用例
 --------

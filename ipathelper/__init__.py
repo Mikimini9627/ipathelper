@@ -40,10 +40,11 @@ from .ipathelper import (
     ST_PURCHASE_DATA_INTERNAL, ST_BET_DATA, ST_BET_DATA_WIN5,
     ST_ODDS_DATA, ST_ODDS_DETAIL, ST_ODDS_DATA_INTERNAL,
     ST_RACECARD_DATA, ST_ENTRY_DETAIL, ST_RACECARD_DATA_INTERNAL,
+    ST_NOTICE_DATA, ST_NOTICE_ITEM, ST_NOTICE_DATA_INTERNAL,
     # 関数
     login, logout, deposit, withdraw, get_purchase_data,
     get_bet_instance, get_bet_instance_win5, bet, bet_win5,
-    set_auto_deposit_flag, get_odds, get_race_card,
+    set_auto_deposit_flag, get_odds, get_race_card, get_notice,
 )
 import ipathelper.ipathelper as _core
 
@@ -122,6 +123,12 @@ def _init():
 
     _core.lib.ReleaseRaceCardData.restype = None
     _core.lib.ReleaseRaceCardData.argtypes = [POINTER(ST_RACECARD_DATA_INTERNAL)]
+
+    _core.lib.GetNotice.restype = c_uint
+    _core.lib.GetNotice.argtypes = [c_void_p]
+
+    _core.lib.ReleaseNoticeData.restype = None
+    _core.lib.ReleaseNoticeData.argtypes = [POINTER(ST_NOTICE_DATA_INTERNAL)]
 
     if maxsize > 2 ** 32:
         windll.kernel32.FreeLibrary.argtypes = [wintypes.HMODULE]

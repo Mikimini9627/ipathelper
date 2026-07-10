@@ -127,6 +127,14 @@ class ST_RACECARD_DATA:
         self.EntryCount = 0
         self.EntryData = []
 
+class ST_NOTICE_DATA:
+    def __init__(self):
+        self.Message = ""       # 強制表示お知らせ本文。無い場合は空文字
+        self.NoticeNo = ""      # お知らせ番号
+        self.NoticeType = ""    # お知らせ種別
+        self.ItemCount = 0      # お知らせ一覧の件数
+        self.ItemData = []      # お知らせ一覧(ST_NOTICE_ITEM のリスト)
+
 #構造体マーシャリング用クラス
 class ST_TICKET_DATA_DETAIL(Structure):
     _fields_ = [("DecisionFlag", c_byte), ("BetFlag", c_byte), ("Kaisai", c_ushort), ("RaceNo", c_byte), \
@@ -170,6 +178,16 @@ class ST_ENTRY_DETAIL(Structure):
 class ST_RACECARD_DATA_INTERNAL(Structure):
     _fields_ = [("Place", c_ushort), ("RaceNo", c_byte), ("OddsTime", c_char * 8), \
         ("EntryCount", c_uint), ("EntryData", c_void_p)]
+
+class ST_NOTICE_ITEM(Structure):
+    # 文字列フィールド(Title/Date/Url/Icon/Color)はUTF-8のbytes。
+    # 利用時は .decode('utf-8') で文字列化する。
+    _fields_ = [("Title", c_char * 512), ("Date", c_char * 64), \
+        ("Url", c_char * 1024), ("Icon", c_char * 128), ("Color", c_char * 32)]
+
+class ST_NOTICE_DATA_INTERNAL(Structure):
+    _fields_ = [("Message", c_char * 2048), ("NoticeNo", c_char * 16), \
+        ("NoticeType", c_char * 8), ("ItemCount", c_uint), ("ItemData", c_void_p)]
 
 
 def login(iNetId : str, id : str, password : str, pars : str) -> int:
@@ -363,5 +381,46 @@ def get_race_card(place : int, raceNo : int, raceCard : ST_RACECARD_DATA) -> int
         raceCard.EntryData.append(ST_ENTRY_DETAIL.from_buffer(oneEntryBytes, 0))
 
     lib.ReleaseRaceCardData(byref(tempRaceCardData))
+
+    return returnValue
+
+def get_notice(notice : ST_NOTICE_DATA) -> int:
+    '''
+        お知らせ取得処理実行(中央競馬・地方競馬に対応)
+        強制表示お知らせ本文(Message)と、お知らせ一覧(ItemData)を取得する。
+        ネイティブ側で確保されたメモリは本関数内で解放する。
+        ItemData の各要素は ST_NOTICE_ITEM で、Title 等の文字列フィールドは
+        UTF-8 の bytes のため利用時に .decode('utf-8') する。
+    '''
+    tempNoticeData = ST_NOTICE_DATA_INTERNAL()
+
+    # お知らせを取得する
+    returnValue = lib.GetNotice(byref(tempNoticeData))
+
+    # 返却用のデータに値を設定
+    notice.Message = tempNoticeData.Message.decode('utf-8', errors='ignore')
+    notice.NoticeNo = tempNoticeData.NoticeNo.decode('utf-8', errors='ignore')
+    notice.NoticeType = tempNoticeData.NoticeType.decode('utf-8', errors='ignore')
+    notice.ItemCount = tempNoticeData.ItemCount
+
+    # 取得失敗・一覧なしはここで解放して戻る
+    if (returnValue & 1) != 1 or tempNoticeData.ItemCount <= 0 or not tempNoticeData.ItemData:
+        lib.ReleaseNoticeData(byref(tempNoticeData))
+        return returnValue
+
+    # お知らせ一覧(全て)を格納するためのバッファを確保(解放前に取り出す)
+    allItemBytes = bytearray(string_at(tempNoticeData.ItemData, \
+        sizeof(ST_NOTICE_ITEM) * tempNoticeData.ItemCount))
+
+    for i in range(tempNoticeData.ItemCount):
+        # 1つ分の構造体データを格納するバッファを確保して情報を格納する
+        oneItemBytes = bytearray(sizeof(ST_NOTICE_ITEM))
+        for j in range(sizeof(ST_NOTICE_ITEM)):
+            oneItemBytes[j] = allItemBytes[j + i * sizeof(ST_NOTICE_ITEM)]
+
+        # お知らせ一覧(1個)をインスタンスに変換して追加する
+        notice.ItemData.append(ST_NOTICE_ITEM.from_buffer(oneItemBytes, 0))
+
+    lib.ReleaseNoticeData(byref(tempNoticeData))
 
     return returnValue
