@@ -38,7 +38,12 @@ ipathelper
 --------
 
 - OS: Windows 10 以降（32bit / 64bit）
-- Python: 3.x
+- Python: 3.12 以上
+
+.. note::
+
+   ネイティブ DLL（``IpatHelper.dll``）は 32bit / 64bit の両方がパッケージに同梱され、
+   実行中の Python のビット数に応じて自動で読み込まれます。個別のインストールは不要です。
 
 --------
 共通仕様
@@ -880,6 +885,10 @@ get_notice
 - ``notice.ItemData`` の各要素は ``ST_NOTICE_ITEM`` です。
 - ``Title`` / ``Date`` / ``Url`` などの文字列フィールドは **UTF-8 の bytes** です。利用時は ``.decode('utf-8')`` してください。
 - お知らせが無い場合は ``Message`` が空文字・``ItemCount`` が 0 で成功します。
+- ``Message`` は HTML を含むことがあり、**2048 バイトで打ち切られます**\ （``Title`` は 512 バイト、``Url`` は 1024 バイト）。
+  古い版の DLL では打ち切り位置が文字の途中になることがあり、``.decode('utf-8')`` が
+  ``UnicodeDecodeError`` になる場合があります。最新版へ更新するか、
+  ``.decode('utf-8', errors='replace')`` で安全に読み取ってください。
 
 ``notice.ItemData`` の各要素（ST_NOTICE_ITEM）:
 
@@ -1245,3 +1254,104 @@ WIN5 の購入
 - りそな銀行
 - 埼玉りそな銀行
 - au じぶん銀行
+
+------------------------------
+開発者向け: リリース手順
+------------------------------
+
+リポジトリ構成
+==============
+
+.. code-block:: text
+
+   ipathelper/
+   ├── deploy_prd.bat      ... PyPI へ公開する入口
+   ├── deploy_dev.bat      ... TestPyPI へ公開する入口
+   ├── deploy_common.bat   ... バージョン更新・ビルド・公開の本体
+   ├── publish.py          ... ~/.pypirc から認証情報を読み uv publish を実行する
+   ├── pyproject.toml      ... [project] の version を deploy_common.bat が自動更新する
+   └── ipathelper/
+       ├── __init__.py     ... DLL の読み込み・解放
+       ├── ipathelper.py   ... 各 API のラッパー
+       ├── x64/IpatHelper.dll
+       └── x86/IpatHelper.dll
+
+事前準備
+========
+
+``uv`` をインストールし、``~/.pypirc`` に ``[pypi]`` / ``[testpypi]`` セクションを用意します。
+
+.. code-block:: ini
+
+   [pypi]
+   repository = https://upload.pypi.org/legacy/
+   username = __token__
+   password = pypi-xxxxxxxx
+
+   [testpypi]
+   repository = https://test.pypi.org/legacy/
+   username = __token__
+   password = pypi-xxxxxxxx
+
+ネイティブ DLL を更新する場合は、ビルドした 32bit / 64bit の ``IpatHelper.dll`` を
+``ipathelper/x86/`` と ``ipathelper/x64/`` へ配置してください。
+
+公開
+====
+
+.. code-block:: console
+
+   > deploy_dev.bat      :: TestPyPI へ公開
+   > deploy_prd.bat      :: PyPI へ公開
+
+いずれも次の順に処理されます。
+
+1. ``pyproject.toml`` の ``[project]`` セクションから ``version`` を読み取り、**パッチ番号を +1** して書き戻す
+2. ``dist`` を削除して ``uv build``
+3. ``publish.py`` 経由で ``uv publish``
+
+公開せずにバージョン計算とビルドだけを確認したい場合は ``/dryrun`` を付けます。
+このときバージョン番号は書き換わりません。
+
+.. code-block:: console
+
+   > deploy_prd.bat /dryrun
+
+.. note::
+
+   バージョン番号は dev / prd で **共通のカウンタ**\ です。
+   PyPI・TestPyPI とも同一バージョンの再アップロードを拒否するため、
+   カウンタを共通にして常に未使用の番号が取れるようにしています
+   （その結果、本番側の番号が飛ぶことがありますが問題ありません）。
+
+.. warning::
+
+   バージョンは ``pyproject.toml`` の値を基準に +1 されます。
+   そのため ``pyproject.toml`` が **PyPI の公開済み最新版と一致している**\ ことが前提です。
+
+   別の環境で公開した後などにこの値が古いままだと、既に存在する番号を作ってしまい、
+   ビルドは通っても最後のアップロードで拒否されます。公開前に
+   `PyPI の最新版 <https://pypi.org/project/ipathelper/>`__ と突き合わせ、
+   ずれていれば ``pyproject.toml`` の ``version`` を実際の最新版に合わせてください。
+
+   ずれの確認は次のコマンドでも行えます。
+
+   .. code-block:: console
+
+      > uv run --no-project --with requests python -c "import requests;print(requests.get('https://pypi.org/pypi/ipathelper/json').json()['info']['version'])"
+
+バッチ編集時の注意
+==================
+
+``deploy_common.bat`` は ``pyproject.toml`` を 1 行ずつ読み直して書き戻すため、
+次の点を崩さないでください。
+
+- **バッチ本文は ASCII のみ・改行は CRLF** にする。
+  先頭でコンソールのコードページを UTF-8（65001）へ切り替えているため、
+  バッチ内に非 ASCII 文字があるとコードページ次第で構文エラーになります。
+- コードページの切り替えは必須です。``pyproject.toml`` は UTF-8 で日本語（``description``）を
+  含むため、CP932 のまま読み書きすると再エンコードされて文字化けします。
+- 行の出力は ``echo(!line!`` の形（遅延展開）を使う。
+  ``requires-python = ">=3.12"`` の ``>`` がリダイレクトとして解釈されるのを防いでいます。
+- 読み込みは ``findstr /n "^"`` で行番号を付けてから除去する。
+  ``for /f`` は空行を読み飛ばすため、そのままでは TOML の空行が失われます。
