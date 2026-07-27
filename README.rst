@@ -12,7 +12,7 @@ ipathelper
 --------
 
 **ipathelper** は、JRA（日本中央競馬会）のインターネット投票サービス「I-PAT」および地方競馬の投票システムに対して、
-ログイン・入出金・馬券購入・購入履歴取得などを Python から行うためのラッパーライブラリです。
+ログイン・入出金・馬券購入・購入履歴取得・オッズ取得・出馬表取得・お知らせ取得を Python から行うためのラッパーライブラリです。
 
 - 中央競馬・地方競馬・海外競馬・WIN5 に対応
 - Windows 32bit / 64bit 環境で動作
@@ -192,12 +192,14 @@ ipathelper
      - シャティン（香港）
    * - ``KAISAI_SANTAANITA``
      - サンタアニタ（アメリカ）
-   * - ``KAISAI_DEAUVILLE``
+   * - ``KAISAI_DEAUVILE``
      - ドーヴィル（フランス）
    * - ``KAISAI_CHURCHILLDOWNS``
      - チャーチルダウンズ（アメリカ）
    * - ``KAISAI_ABDULAZIZ``
      - キングアブドゥルアジーズ（サウジアラビア）
+   * - ``KAISAI_ASCOT``
+     - アスコット（イギリス）
 
 式別（SHIKIBETSU）
 ==================
@@ -230,16 +232,50 @@ ipathelper
 
 .. list-table::
    :header-rows: 1
-   :widths: 50 50
+   :widths: 34 30 36
 
    * - 定数名
      - 方式
+     - 買い目の指定
    * - ``HOUSHIKI_NORMAL``
      - 通常
+     - 1点を指定
    * - ``HOUSHIKI_FORMATION``
      - フォーメーション
+     - 各列に複数馬番
    * - ``HOUSHIKI_BOX``
      - ボックス
+     - 1列に複数馬番（全組み合わせ）
+   * - ``HOUSHIKI_WHEEL_1ST``
+     - 軸1頭ながし（1着流し）
+     - ``"軸-相手"``
+   * - ``HOUSHIKI_WHEEL_2ND``
+     - 2着ながし（馬単・三連単）
+     - ``"軸-相手"``
+   * - ``HOUSHIKI_WHEEL_3RD``
+     - 3着ながし（三連単）
+     - ``"軸-相手"``
+   * - ``HOUSHIKI_WHEEL_1ST_2ND``
+     - 軸2頭ながし（三連複）／1・2着ながし（三連単）
+     - 三連複 ``"軸,軸-相手"`` ／三連単 ``"1着軸-2着軸-相手"``
+   * - ``HOUSHIKI_WHEEL_1ST_3RD``
+     - 1・3着ながし（三連単）
+     - ``"1着軸-相手-3着軸"``
+   * - ``HOUSHIKI_WHEEL_2ND_3RD``
+     - 2・3着ながし（三連単）
+     - ``"相手-2着軸-3着軸"``
+   * - ``HOUSHIKI_WHEEL_MULTI_AXIS1``
+     - 軸1頭ながしマルチ（馬単・三連単）
+     - ``"軸-相手"``（全着順）
+   * - ``HOUSHIKI_WHEEL_MULTI_AXIS2``
+     - 軸2頭ながしマルチ（三連単のみ）
+     - ``"軸-軸-相手"``（全着順）
+
+.. note::
+
+   ながし（``WHEEL_*``）／マルチ（``WHEEL_MULTI_*``）は「軸」と「相手」を列（``-`` 区切り）で指定します。
+   列の意味は式別・方式によって変わります。マルチは馬単・三連単でのみ指定でき、購入すると
+   ``ST_BET_DATA.Multi`` が ``1`` になります。中央・地方・海外すべての開催場で指定できます。
 
 確定フラグ（DECISIONFLAG）
 ==========================
@@ -311,7 +347,8 @@ ST_PURCHASE_DATA
 ================
 
 ``get_purchase_data()`` が設定するルート構造体です。
-使用後は必ず ``release_purchase_data()`` で解放してください。
+ネイティブ側のメモリ解放は ``get_purchase_data()`` 内部で自動的に行われるため、
+利用者側での解放処理は不要です（返却されるデータは Python 側にコピー済みです）。
 
 .. list-table::
    :header-rows: 1
@@ -620,6 +657,16 @@ get_bet_instance
 
    馬連 ボックス 1・2・3・4番（6点）  -> "1,2,3,4"
    三連単 ボックス 1・2・3番（6点）   -> "1,2,3"
+
+ながし・マルチは ``houshiki`` に ``HOUSHIKI_WHEEL_*`` / ``HOUSHIKI_WHEEL_MULTI_*`` を指定します。
+
+.. code-block:: text
+
+   三連単 1着ながし    軸=1 / 相手=2,3,4    HOUSHIKI_WHEEL_1ST         -> "1-2,3,4"   （6点）
+   三連単 1・2着ながし 1着軸=1 / 2着軸=2 / 相手=3,4  HOUSHIKI_WHEEL_1ST_2ND -> "1-2-3,4"
+   馬連 ながし         軸=1 / 相手=2,3,4    HOUSHIKI_WHEEL_1ST         -> "1-2,3,4"
+   三連単 軸1頭マルチ  軸=1 / 相手=2,3,4    HOUSHIKI_WHEEL_MULTI_AXIS1 -> "1-2,3,4"   （全着順18点）
+   三連単 軸2頭マルチ  軸=1,2 / 相手=3,4    HOUSHIKI_WHEEL_MULTI_AXIS2 -> "1-2-3,4"
 
 bet
 ===
