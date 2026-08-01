@@ -130,8 +130,21 @@ echo [INFO] publishing to %SECTION%...
 uv run --no-project publish.py %SECTION%
 if errorlevel 1 echo [ERROR] publish failed. & goto FAIL
 
+rem ============================================================
+rem  After a successful deploy, commit the changes to the
+rem  current branch and push. Keep this block ASCII-only.
+rem ============================================================
 echo.
-echo [SUCCESS] ipathelper !NEW! was published to %SECTION%.
+echo [INFO] committing and pushing to the current branch...
+git add -A
+git commit -m "Release !NEW! (published to %SECTION%)"
+for /f "delims=" %%b in ('git rev-parse --abbrev-ref HEAD') do set "CURRENT_BRANCH=%%b"
+echo [INFO] pushing to origin/!CURRENT_BRANCH!...
+git push origin !CURRENT_BRANCH!
+if errorlevel 1 echo [ERROR] git push failed. & goto FAIL
+
+echo.
+echo [SUCCESS] ipathelper !NEW! was published to %SECTION% and pushed to !CURRENT_BRANCH!.
 set "EXIT_CODE=0"
 goto END
 
