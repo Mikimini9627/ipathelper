@@ -828,6 +828,7 @@ get_race_card
 
 - ネイティブ側のメモリは関数内部で自動解放されます。利用者側での解放は不要です。
 - ``raceCard.EntryData`` の各要素は ``ST_ENTRY_DETAIL`` です。
+- ``raceCard.RaceName`` はレース名（**UTF-8 の文字列**）です。出馬表応答自体にはレース名が含まれないため、内部で取得する開催メニューから抽出しています。取得できない場合は空文字です。
 - 馬名・騎手名・調教師名などの文字列フィールドは **UTF-8 の bytes** です。利用時は ``.decode('utf-8')`` してください。
 - 斤量・オッズは 10 倍の整数で格納されます。実際の値は ``/ 10.0``。
 
@@ -861,6 +862,7 @@ get_race_card
    raceCard = ST_RACECARD_DATA()
    ret = get_race_card(KAISAI_TOKYO, 11, raceCard)
    if (ret & 1) == 1:
+       print(f"レース名: {raceCard.RaceName}")
        print(f"オッズ更新時刻: {raceCard.OddsTime} / 出走頭数: {raceCard.EntryCount}")
        for e in raceCard.EntryData:
            name = e.HorseName.decode('utf-8')
