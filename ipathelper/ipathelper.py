@@ -135,6 +135,7 @@ class ST_RACECARD_DATA:
         self.OddsTime = ""
         self.EntryCount = 0
         self.EntryData = []
+        self.RaceName = ""
 
 class ST_NOTICE_DATA:
     def __init__(self):
@@ -186,8 +187,10 @@ class ST_ENTRY_DETAIL(Structure):
         ("PlaceOddsStatus", c_byte), ("PlaceOddsLow", c_uint), ("PlaceOddsHigh", c_uint)]
 
 class ST_RACECARD_DATA_INTERNAL(Structure):
+    # RaceName はレース名(UTF-8のbytes)。ネイティブ側構造体の末尾に追加されたため、
+    # EntryData(ポインタ)の後ろに配置する。
     _fields_ = [("Place", c_ushort), ("RaceNo", c_byte), ("OddsTime", c_char * 8), \
-        ("EntryCount", c_uint), ("EntryData", c_void_p)]
+        ("EntryCount", c_uint), ("EntryData", c_void_p), ("RaceName", c_char * 128)]
 
 class ST_NOTICE_ITEM(Structure):
     # 文字列フィールド(Title/Date/Url/Icon/Color)はUTF-8のbytes。
@@ -371,6 +374,8 @@ def get_race_card(place : int, raceNo : int, raceCard : ST_RACECARD_DATA) -> int
     raceCard.RaceNo = tempRaceCardData.RaceNo
     raceCard.OddsTime = tempRaceCardData.OddsTime.decode('ascii', errors='ignore')
     raceCard.EntryCount = tempRaceCardData.EntryCount
+    # レース名はUTF-8のbytesのためutf-8でデコードする(OddsTimeはascii)
+    raceCard.RaceName = tempRaceCardData.RaceName.decode('utf-8', errors='ignore')
 
     # 取得失敗・明細なしはここで解放して戻る
     if (returnValue & 1) != 1 or tempRaceCardData.EntryCount <= 0 or not tempRaceCardData.EntryData:
