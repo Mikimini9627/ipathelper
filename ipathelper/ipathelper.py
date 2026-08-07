@@ -98,6 +98,18 @@ DEFAULT_RETRY_COUNT = 10
 DEFAULT_WAIT_TIME = 1000
 DEFAULT_CONFIRM_TIMEOUT = 10000
 
+LOG_LEVEL_TRACE = 0     # 詳細トレース。入出金失敗時の応答本文の抜粋はこのレベルのみ
+LOG_LEVEL_INFO = 1      # 情報(既定)
+LOG_LEVEL_WARN = 2      # 警告
+LOG_LEVEL_ERROR = 3     # エラー。失敗した段階・画面ID・タイトルはこのレベル
+
+# ログコールバックの型。DLL側は __cdecl のため CFUNCTYPE(WINFUNCTYPE ではない)。
+LOG_CALLBACK = CFUNCTYPE(None, c_int, c_char_p)
+
+# ネイティブへ渡したコールバックはGCされるとクラッシュするため参照を保持する
+_log_callback_ref = None
+_log_handler = None
+
 class ST_TICKET_DATA:
     def __init__(self):
         self.DayFlag = 0
@@ -202,6 +214,41 @@ class ST_NOTICE_DATA_INTERNAL(Structure):
     _fields_ = [("Message", c_char * 2048), ("NoticeNo", c_char * 16), \
         ("NoticeType", c_char * 8), ("ItemCount", c_uint), ("ItemData", c_void_p)]
 
+
+def set_log_callback(handler, minLevel : int = LOG_LEVEL_INFO) -> None:
+    '''
+        DLL内部のログを受け取るハンドラを登録する(Noneで解除)
+
+        handler は handler(level: int, message: str) の形で呼ばれる。
+        入出金は erc/erm のようなエラーコードを返さないため、失敗の原因を知るには
+        このログが唯一の手掛かりになる。失敗した段階・画面ID・タイトルは
+        LOG_LEVEL_ERROR で通知されるが、サーバ側の拒否理由が載る応答本文の抜粋は
+        LOG_LEVEL_TRACE を指定したときのみ通知される(口座番号や残高を含み得る)。
+
+        注意: ハンドラはDLL内部ロックを保持したまま呼ばれるため、
+        ハンドラ内から本モジュールのAPIを呼び返さないこと(デッドロックする)。
+        またログイン中は中央・地方の2スレッドから同時に呼ばれる。
+    '''
+    global _log_callback_ref, _log_handler
+
+    _log_handler = handler
+
+    if handler is None:
+        # 解除時はDLL側が排他ロックを取るため、戻った時点で実行中の呼び出しは無い
+        lib.SetLogCallback(None, minLevel)
+        _log_callback_ref = None
+        return
+
+    def _on_log(level, message):
+        # message は UTF-8 の null 終端文字列
+        try:
+            text = message.decode('utf-8', 'replace') if message else ''
+            _log_handler(level, text)
+        except Exception:
+            pass    # ハンドラ側の例外をネイティブへ伝播させない
+
+    _log_callback_ref = LOG_CALLBACK(_on_log)
+    lib.SetLogCallback(_log_callback_ref, minLevel)
 
 def login(iNetId : str, id : str, password : str, pars : str) -> int:
     '''

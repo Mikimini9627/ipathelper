@@ -966,6 +966,58 @@ get_notice
            url = item.Url.decode('utf-8')
            print(f"  [{date}] {title}  {url}")
 
+set_log_callback
+================
+
+DLL 内部のログを受け取るハンドラを登録します（``None`` で解除）。
+**Release ビルドの DLL でも取得できます。**
+
+.. code-block:: python
+
+   set_log_callback(handler, minLevel=LOG_LEVEL_INFO)
+
+**入出金の失敗調査にはこの API が必須です。** 入出金はサーバレンダリングの HTML フォームで、
+``erc`` / ``erm`` のような機械可読なエラーコードを返しません。失敗した段階・画面 ID・
+画面タイトルは ``LOG_LEVEL_ERROR`` で通知されますが、**サーバ側の拒否理由が載る
+応答本文の抜粋は** ``LOG_LEVEL_TRACE`` **を指定したときのみ**通知されます。
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - ログレベル
+     - 説明
+   * - ``LOG_LEVEL_TRACE``
+     - 詳細トレース。**入出金失敗時の応答本文の抜粋はこのレベルのみ**
+   * - ``LOG_LEVEL_INFO``
+     - 情報（既定）
+   * - ``LOG_LEVEL_WARN``
+     - 警告
+   * - ``LOG_LEVEL_ERROR``
+     - エラー。失敗した段階・画面 ID・タイトルはこのレベル
+
+- ハンドラは ``handler(level: int, message: str)`` の形で呼ばれます。
+  ``message`` は UTF-8 からデコード済みの ``str`` です（他の API の bytes と異なります）。
+- ハンドラは **DLL 内部ロックを保持したまま**呼ばれます。
+  **ハンドラ内から本モジュールの API を呼び返さないでください**\ （デッドロックします）。
+- ``login`` 実行中は中央・地方の **2 スレッドから同時に**呼ばれます。
+- ``None`` を渡して戻った時点で実行中のハンドラは存在しないため、対象を安全に破棄できます。
+- 応答本文の抜粋には**口座番号や残高が含まれ得ます**。``LOG_LEVEL_TRACE`` は調査時のみ指定し、
+  ログの取り扱いに注意してください。
+
+.. code-block:: python
+
+   from ipathelper import set_log_callback, LOG_LEVEL_INFO, LOG_LEVEL_TRACE
+
+   def on_log(level, message):
+       print(f"[{level}] {message}")
+
+   set_log_callback(on_log, LOG_LEVEL_INFO)   # 調査時は LOG_LEVEL_TRACE
+
+   # ... 各 API を実行 ...
+
+   set_log_callback(None)                      # 解除してからハンドラの対象を破棄する
+
 --------
 使用例
 --------

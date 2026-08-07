@@ -1,7 +1,7 @@
 import os
 import atexit
 import importlib.resources as pkg_resources
-from ctypes import windll, wintypes, POINTER, c_bool, c_uint, c_ushort, c_char_p, c_void_p, c_byte, c_long
+from ctypes import cdll, windll, wintypes, POINTER, c_bool, c_int, c_uint, c_ushort, c_char_p, c_void_p, c_byte, c_long
 from sys import maxsize
 
 from .ipathelper import (
@@ -37,6 +37,9 @@ from .ipathelper import (
     SUCCESS, UNSUCCESS, FAILED_CHUOU, FAILED_CHIHOU,
     FAILED_COMMUNICATE_CHUOU, FAILED_COMMUNICATE_CHIHOU,
     DEFAULT_RETRY_COUNT, DEFAULT_WAIT_TIME, DEFAULT_CONFIRM_TIMEOUT,
+    # 定数: ログ
+    LOG_LEVEL_TRACE, LOG_LEVEL_INFO, LOG_LEVEL_WARN, LOG_LEVEL_ERROR,
+    LOG_CALLBACK,
     # クラス
     ST_TICKET_DATA, ST_PURCHASE_DATA,
     ST_TICKET_DATA_DETAIL, ST_TICKET_DATA_INTERNAL,
@@ -48,6 +51,7 @@ from .ipathelper import (
     login, logout, deposit, withdraw, get_purchase_data,
     get_bet_instance, get_bet_instance_win5, bet, bet_win5,
     set_auto_deposit_flag, get_odds, get_race_card, get_notice,
+    set_log_callback,
 )
 import ipathelper.ipathelper as _core
 
@@ -80,7 +84,11 @@ def _init():
     if not os.path.exists(dll_path):
         return False
 
-    _core.lib = windll.LoadLibrary(dll_path)
+    # 公開関数はすべて __cdecl。WinDLL(=windll) は StdCall のため x86 で規約が食い違う。
+    _core.lib = cdll.LoadLibrary(dll_path)
+
+    _core.lib.SetLogCallback.restype = None
+    _core.lib.SetLogCallback.argtypes = [LOG_CALLBACK, c_int]
 
     _core.lib.Login.restype = c_uint
     _core.lib.Login.argtypes = [c_char_p, c_char_p, c_char_p, c_char_p]
