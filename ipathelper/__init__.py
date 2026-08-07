@@ -37,6 +37,8 @@ from .ipathelper import (
     SUCCESS, UNSUCCESS, FAILED_CHUOU, FAILED_CHIHOU,
     FAILED_COMMUNICATE_CHUOU, FAILED_COMMUNICATE_CHIHOU,
     DEFAULT_RETRY_COUNT, DEFAULT_WAIT_TIME, DEFAULT_CONFIRM_TIMEOUT,
+    # 定数: WIN5 の購入方式
+    WIN5_AUTO_SELECT, WIN5_AUTO_RANDOM,
     # 定数: ログ
     LOG_LEVEL_TRACE, LOG_LEVEL_INFO, LOG_LEVEL_WARN, LOG_LEVEL_ERROR,
     LOG_CALLBACK,
@@ -51,7 +53,7 @@ from .ipathelper import (
     login, logout, deposit, withdraw, get_purchase_data,
     get_bet_instance, get_bet_instance_win5, bet, bet_win5,
     set_auto_deposit_flag, get_odds, get_race_card, get_notice,
-    set_log_callback,
+    set_log_callback, bet_win5_auto,
 )
 import ipathelper.ipathelper as _core
 
@@ -119,6 +121,9 @@ def _init():
 
     _core.lib.BetWin5.restype = c_uint
     _core.lib.BetWin5.argtypes = [ST_BET_DATA_WIN5, c_ushort]
+
+    _core.lib.BetWin5Auto.restype = c_uint
+    _core.lib.BetWin5Auto.argtypes = [c_byte, c_char_p, c_ushort, c_uint, c_ushort, c_byte, c_byte]
 
     _core.lib.SetAutoDepositFlag.restype = c_uint
     _core.lib.SetAutoDepositFlag.argtypes = [c_bool, c_ushort, c_ushort]

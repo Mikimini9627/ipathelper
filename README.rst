@@ -966,6 +966,44 @@ get_notice
            url = item.Url.decode('utf-8')
            print(f"  [{date}] {title}  {url}")
 
+bet_win5_auto
+=============
+
+WIN5 を「セレクト」または「ランダム」で購入します。買い目を指定する ``bet_win5`` と違い、
+**買い目はサーバが生成**します。
+
+.. code-block:: python
+
+   bet_win5_auto(mode, axisUmaban, betCount, kingaku, year, month, day)
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - 方式
+     - 動作
+   * - ``WIN5_AUTO_SELECT`` (2)
+     - ``axisUmaban`` で軸馬を指定し、``0`` にしたレースはサーバが選ぶ
+   * - ``WIN5_AUTO_RANDOM`` (3)
+     - 5 レースすべてサーバが選ぶ（``axisUmaban`` は ``None`` で可）
+
+- **生成された買い目はそのまま購入されます。** 内容を事前に確認する手段はないため、
+  呼び出す前に必ず利用者の確認を取ってください。
+- **セレクトで軸をすべて** ``0`` **にすることはできません。** 電文がランダムと同一になり
+  サーバに拒否されます。全おまかせにしたい場合は ``WIN5_AUTO_RANDOM`` を使ってください。
+- 点数の上限は 50 点です。合計金額が 1,000,000 円を超える場合は送信せずに ``UNSUCCESS`` を返します。
+- WIN5 は中央競馬のみ対応です。
+
+.. code-block:: python
+
+   from ipathelper import bet_win5_auto, WIN5_AUTO_SELECT, WIN5_AUTO_RANDOM
+
+   # ランダムで 10 点 × 100円
+   ret = bet_win5_auto(WIN5_AUTO_RANDOM, None, 10, 100, 2026, 8, 9)
+
+   # セレクト: 1R の軸だけ決めて 20 点 × 100円
+   ret = bet_win5_auto(WIN5_AUTO_SELECT, "6,0,0,0,0", 20, 100, 2026, 8, 9)
+
 set_log_callback
 ================
 
