@@ -73,37 +73,54 @@ ipathelper
    * - 定数名
      - ビット
      - 意味
-   * - ``RETURN_SUCCESS``
+   * - ``SUCCESS``
      - 1
      - 処理に成功
-   * - ``RETURN_UNSUCCESS``
+   * - ``UNSUCCESS``
      - 2
      - 処理に失敗（パラメータ不正・残高不足等）
-   * - ``RETURN_FAILED_CHUOU``
+   * - ``FAILED_CHUOU``
      - 4
      - 中央競馬での処理に失敗
-   * - ``RETURN_FAILED_CHIHOU``
+   * - ``FAILED_CHIHOU``
      - 8
      - 地方競馬での処理に失敗
-   * - ``RETURN_FAILED_COM_CHUOU``
+   * - ``FAILED_COMMUNICATE_CHUOU``
      - 16
      - 中央競馬との通信に失敗
-   * - ``RETURN_FAILED_COM_CHIHOU``
+   * - ``FAILED_COMMUNICATE_CHIHOU``
      - 32
      - 地方競馬との通信に失敗
 
 スレッドセーフ
 ==============
 
-全関数は内部で排他制御されています。複数スレッドからの同時呼び出しは安全ですが、
-関数はブロッキング動作となります。
+通信を伴う関数は DLL 内部の単一ロックで直列化されます。複数スレッドから同時に呼び出しても
+壊れませんが、先行する呼び出しが完了するまでブロックします
+（購入・入出金は通信と残高反映待ちを含むため、数分に及ぶことがあります）。
+
+``get_bet_instance`` / ``get_bet_instance_win5`` は通信もグローバル状態の参照も行わない
+純粋な入力変換のためロックを取りません。他の関数の通信中でも並行して呼び出せます。
+
+DLL 内部で発生した例外は境界を越えず、すべて捕捉されて ``UNSUCCESS`` として返ります。
+
+購入金額の上限
+==============
+
+1回の送信あたりの合計購入金額は **1,000,000円** が上限です。
+I-PAT のフロントエンド側の制限（``CN_TOTALMONEYMAX``）と同じ値で、
+``bet`` / ``bet_win5`` / ``bet_win5_auto`` は送信前に検査し、超過する場合は
+送信せずに ``UNSUCCESS`` を返します。
+
+送信は **中央 255点／地方・WIN5 50点** ずつに自動分割され、上限はこの分割単位ごとに効きます。
+1点だけでもこの上限が効くため、1点あたりの金額も実質 1,000,000円 が上限です。
 
 前提条件
 ========
 
 ``bet`` ・ ``deposit`` ・ ``withdraw`` ・ ``get_purchase_data`` などの関数は、
 事前に ``login()`` が成功している必要があります。
-未ログイン状態での呼び出しは ``RETURN_UNSUCCESS`` を返します。
+未ログイン状態での呼び出しは ``UNSUCCESS`` を返します。
 
 --------
 定数一覧
@@ -266,10 +283,10 @@ ipathelper
      - ``"相手-2着軸-3着軸"``
    * - ``HOUSHIKI_WHEEL_MULTI_AXIS1``
      - 軸1頭ながしマルチ（馬単・三連単）
-     - ``"軸-相手"``（全着順）
+     - ``"軸-相手"``\ （全着順）
    * - ``HOUSHIKI_WHEEL_MULTI_AXIS2``
      - 軸2頭ながしマルチ（三連単のみ）
-     - ``"軸-軸-相手"``（全着順）
+     - ``"軸-軸-相手"``\ （全着順）
 
 .. note::
 
@@ -309,6 +326,49 @@ ipathelper
    * - ``DECISIONFLAG_SALECANCEL``
      - 発売取消
 
+その他の定数
+============
+
+購入日種類（DAYTYPE）／購入フラグ（BETFLAG）は ``get_purchase_data()`` の結果に現れます。
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - 定数名
+     - 意味
+   * - ``DAYTYPE_TODAY`` / ``DAYTYPE_BEFORE``
+     - 購入日（当日 / 前日）
+   * - ``BETFLAG_NORMAL`` / ``BETFLAG_WIN5`` / ``BETFLAG_INTERNAL``
+     - 購入フラグ（通常 / WIN5 / 海外）
+   * - ``WEEKDAY_SUNDAY`` 〜 ``WEEKDAY_SATURDAY``
+     - 曜日（日曜=1 〜 土曜=7）
+   * - ``ODDS_STATUS_NORMAL`` / ``ODDS_STATUS_CANCEL`` / ``ODDS_STATUS_UNACQUIRED``
+     - オッズ状態（通常=0 / 発売中止=1 / オッズ未取得=2）
+   * - ``WIN5_AUTO_SELECT`` / ``WIN5_AUTO_RANDOM``
+     - ``bet_win5_auto()`` の購入方式（セレクト=2 / ランダム=3）
+   * - ``LOG_LEVEL_TRACE`` 〜 ``LOG_LEVEL_ERROR``
+     - ``set_log_callback()`` のログレベル（0〜3）
+
+既定値の定数:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 15 50
+
+   * - 定数名
+     - 値
+     - 用途
+   * - ``DEFAULT_RETRY_COUNT``
+     - 10
+     - ``deposit()`` / ``withdraw()`` のリトライ回数の既定値
+   * - ``DEFAULT_WAIT_TIME``
+     - 1000
+     - ``bet()`` / ``bet_win5()`` の購入間隔（ms）の既定値
+   * - ``DEFAULT_CONFIRM_TIMEOUT``
+     - 10000
+     - 残高反映の確認タイムアウト（ms）の既定値
+
 ----------
 データ構造
 ----------
@@ -334,14 +394,55 @@ ST_BET_DATA
    * - フィールド名
      - 型
      - 説明
+   * - ``Place``
+     - int
+     - 開催場（KAISAI 定数）
+   * - ``RaceNo``
+     - int
+     - レース番号
+   * - ``Youbi``
+     - int
+     - 曜日（WEEKDAY 定数。年月日から自動判定）
+   * - ``Kaikata``
+     - int
+     - 方式（HOUSHIKI 定数。マルチ指定時は基底のながし方式へ変換される）
+   * - ``Shikibetsu``
+     - int
+     - 式別（SHIKIBETSU 定数）
+   * - ``Kingaku``
+     - int
+     - 1点あたりの購入金額（円）
+   * - ``Umaban``
+     - array
+     - 買い目の各列を表すビットデータ（3列分）
    * - ``TotalAmount``
      - int
      - 合計購入金額（``get_bet_instance`` が自動計算）
+   * - ``Multi``
+     - int
+     - マルチかどうか（0:通常 / 1:マルチ）。``HOUSHIKI_WHEEL_MULTI_*`` 指定時に 1 になる
 
 ST_BET_DATA_WIN5
 ================
 
 ``get_bet_instance_win5()`` で設定し、 ``bet_win5()`` に渡す WIN5 専用の購入情報です。
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 10 60
+
+   * - フィールド名
+     - 型
+     - 説明
+   * - ``Kingaku``
+     - int
+     - 1組み合わせあたりの購入金額（円）
+   * - ``Youbi``
+     - int
+     - 曜日（WEEKDAY 定数）
+   * - ``Umaban``
+     - array
+     - 5レース分の買い目を表すビットデータ
 
 ST_PURCHASE_DATA
 ================
@@ -428,18 +529,27 @@ ST_PURCHASE_DATA
    * - ``DecisionFlag``
      - int
      - 確定フラグ（DECISIONFLAG 定数）
+   * - ``BetFlag``
+     - int
+     - 購入フラグ（BETFLAG 定数。通常 / WIN5 / 海外）
    * - ``Kaisai``
      - int
      - 開催場（KAISAI 定数）
    * - ``RaceNo``
      - int
      - レース番号
+   * - ``Week``
+     - int
+     - 開催週
    * - ``Method``
      - int
      - 方式（HOUSHIKI 定数）
    * - ``Type``
      - int
      - 式別（SHIKIBETSU 定数）
+   * - ``HorseNo1`` 〜 ``HorseNo5``
+     - int
+     - 買い目の各列を表すビットデータ（WIN5 を含めるため 5 列分）
    * - ``Multi``
      - int
      - マルチ購入フラグ（1: マルチあり）
@@ -514,7 +624,7 @@ deposit
 
 .. code-block:: python
 
-   ret = deposit(amount, retry_count=10)
+   ret = deposit(depositValue, retryCount=DEFAULT_RETRY_COUNT)
 
 .. list-table::
    :header-rows: 1
@@ -523,17 +633,38 @@ deposit
    * - 引数
      - 型
      - 説明
-   * - ``amount``
+   * - ``depositValue``
      - int
      - 入金額（円）。100円以上かつ100円単位。
-   * - ``retry_count``
+   * - ``retryCount``
      - int
-     - 通信失敗時のリトライ回数。デフォルト: 10回。
+     - **準備段階のみ** のリトライ回数。デフォルト: 10回（``DEFAULT_RETRY_COUNT``）。
+
+- 入金指示の完了後、入金額が残高へ加算されたことを確認できるまで待機し、
+  **反映を確認できた場合のみ成功** を返します。
+  ``set_auto_deposit_flag()`` の ``confirmTimeout``\ （既定 10 秒）以内に反映されない場合は失敗です。
+- 中央競馬へのログインが有効な場合は中央を優先し、失敗時は地方へフォールバックします。
+  ただし入金実行電文を送信した後は、その系統で失敗しても地方へフォールバックしません。
+- 金融機関コードはログイン応答から自動的に取得します
+  （取得できない場合のみ、対応金融機関のコードを順に試行します）。
 
 .. note::
 
    金額は **100円以上かつ100円単位** で指定してください。
    条件を満たさない場合は ``UNSUCCESS`` を返します。
+
+.. warning::
+
+   ``retryCount`` が適用されるのは **入金実行電文を送信する前の準備段階**
+   （口座セッションの確立・確認画面への遷移）のみです。
+   入金実行そのものは、応答を受信できなかった場合でもサーバ側で成立している可能性があるため
+   **再送しません**\ （二重入金の防止）。この場合は残高への反映で成否を判定します。
+
+.. warning::
+
+   入出金は **即PAT（ネットバンク）会員専用** です。
+   A-PAT 会員には I-PAT 側に入金 URL が存在せず、入金は金融機関側（Pay-easy）で行う仕様のため、
+   ``UNSUCCESS`` を返します。会員種別はログイン応答から自動判定されます。
 
 withdraw
 ========
@@ -542,7 +673,7 @@ I-PAT 残高を登録口座へ全額出金します。
 
 .. code-block:: python
 
-   ret = withdraw(retry_count=10)
+   ret = withdraw(retryCount=DEFAULT_RETRY_COUNT)
 
 .. list-table::
    :header-rows: 1
@@ -551,11 +682,19 @@ I-PAT 残高を登録口座へ全額出金します。
    * - 引数
      - 型
      - 説明
-   * - ``retry_count``
+   * - ``retryCount``
      - int
-     - 通信失敗時のリトライ回数。デフォルト: 10回。
+     - **準備段階のみ** のリトライ回数。デフォルト: 10回（``DEFAULT_RETRY_COUNT``）。
 
 - 出金額の指定は不要です。残高の全額が出金対象となります。
+- 出金指示の完了後、**残高が 0 になったことを確認できた場合のみ成功** を返します。
+  ``confirmTimeout`` 以内に反映されない場合は失敗です。
+- リトライの適用範囲・二重出金の防止・即PAT 会員専用である点は ``deposit()`` と同じです。
+
+.. note::
+
+   入出金の失敗原因はサーバからエラーコードとして返りません。
+   調査には ``set_log_callback()`` を使用してください。
 
 set_auto_deposit_flag
 =====================
@@ -565,7 +704,7 @@ set_auto_deposit_flag
 
 .. code-block:: python
 
-   ret = set_auto_deposit_flag(enable, deposit_value=1000, confirm_timeout=10000)
+   ret = set_auto_deposit_flag(enable, depositValue, confirmTimeout=DEFAULT_CONFIRM_TIMEOUT)
 
 .. list-table::
    :header-rows: 1
@@ -577,13 +716,18 @@ set_auto_deposit_flag
    * - ``enable``
      - bool
      - ``True`` で有効化、``False`` で無効化
-   * - ``deposit_value``
+   * - ``depositValue``
      - int
-     - 自動入金額（円）。デフォルト: 1,000円
-   * - ``confirm_timeout``
+     - 自動入金額（円、100円単位）。**省略できません**\ （無効化時も値の指定が必要です）
+   * - ``confirmTimeout``
      - int
-     - 入金反映確認タイムアウト（ms）。デフォルト: 10秒
+     - 残高反映の確認タイムアウト（ms）。デフォルト: 10,000（``DEFAULT_CONFIRM_TIMEOUT``）
 
+- 入金後、残高への反映を最大 ``confirmTimeout`` ms 待機します。タイムアウトした場合は購入を中止します。
+- 入金しても残高が購入金額に満たない場合は、入金を行わず ``UNSUCCESS`` を返します。
+- ``depositValue`` は ``enable=False`` の場合は検証されません。
+- ``confirmTimeout`` は自動入金だけでなく、``deposit()`` / ``withdraw()`` の
+  **残高反映待ちにも使用されます**\ 。反映が遅い環境では延長してください。
 - ``logout()`` を呼び出すと設定はリセットされます。
 
 get_bet_instance
@@ -627,15 +771,24 @@ get_bet_instance
      - 式別（SHIKIBETSU 定数）
    * - ``kingaku``
      - int
-     - 1点あたりの購入金額（円、100円単位）
+     - 1点あたりの購入金額（円、100円単位）。100円以上 1,000,000円以下
    * - ``kaime``
      - str
      - 買い目文字列（書式は後述）
    * - ``betData``
-     - 
+     -
      - [out] ST_BET_DATA インスタンス
 
 成功すると ``betData.TotalAmount`` に合計購入金額が格納されます。
+
+- 馬番は **1〜18**\ （海外開催は 1〜24）の範囲で指定してください。
+  範囲外の馬番が含まれる場合、その馬番を無視するのではなく ``UNSUCCESS`` を返します
+  （指定より少ない点数で購入されるのを防ぐためです）。
+- **海外開催では枠連（**\ ``SHIKIBETSU_BRACKETQUINELLA``\ **）を購入できません。**
+  海外競馬に枠の概念が無いため、指定すると ``UNSUCCESS`` を返します。
+- 合計購入金額の上限については「`購入金額の上限`_」を参照してください。
+- 本関数は通信もグローバル状態の参照も行わないため内部ロックを取りません。
+  ``bet()`` などの通信中でも並行して呼び出せます。
 
 買い目文字列の書式
 ------------------
@@ -678,28 +831,34 @@ bet
 
    betDataList = (ST_BET_DATA * n)()
    betDataList[0] = betData
-   ret = bet(betDataList, n, wait_ms=500)
+   ret = bet(betDataList, n, waitMiliSeconds=DEFAULT_WAIT_TIME)
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 10 70
+   :widths: 25 10 65
 
    * - 引数
      - 型
      - 説明
    * - ``betDataList``
-     - 
+     -
      - ST_BET_DATA の配列（``(ST_BET_DATA * n)()`` で作成）
-   * - ``n``
+   * - ``listCount``
      - int
      - 配列の要素数
-   * - ``wait_ms``
+   * - ``waitMiliSeconds``
      - int
-     - 購入リクエスト間隔（ms）。デフォルト: 500ms
+     - 分割購入時のリクエスト間隔（ms）。デフォルト: 1,000（``DEFAULT_WAIT_TIME``）
+
+- 購入件数が1回の上限（**中央 255件 / 地方 50件**\ ）を超える場合、自動的に分割して購入します。
+  ``waitMiliSeconds`` はこの分割送信の間隔です。
+- 開催場に応じて中央・地方・海外の適切なエンドポイントへ自動的に振り分けます。
+- 購入前に残高と購入可能件数を確認します。自動入金が有効な場合は残高不足時に自動入金します。
+- 1回の送信あたりの合計購入金額が 1,000,000円 を超える場合は、送信せずに ``UNSUCCESS`` を返します。
 
 .. note::
 
-  ``wait_ms`` が短すぎると購入に失敗する場合があります。
+   ``waitMiliSeconds`` が短すぎると購入に失敗する場合があります。
    ネットワーク環境に応じて調整してください。
 
 get_bet_instance_win5
@@ -721,7 +880,7 @@ WIN5 の買い目文字列を解析し、 ``bet_win5()`` に渡す``ST_BET_DATA_
      - 説明
    * - ``kingaku``
      - int
-     - 1組み合わせあたりの購入金額（円、100円単位）
+     - 1組み合わせあたりの購入金額（円、100円単位）。100円以上 1,000,000円以下
    * - ``year``
      - int
      - 開催年（西暦 4桁）
@@ -738,12 +897,15 @@ WIN5 の買い目文字列を解析し、 ``bet_win5()`` に渡す``ST_BET_DATA_
      - 
      - [out] ST_BET_DATA_WIN5 インスタンス
 
-WIN5 の買い目文字列は必ず **5レース分** を``-`` で区切って指定してください。
+WIN5 の買い目文字列は必ず **5レース分** を ``-`` で区切って指定してください。
+馬番は 1〜18 の範囲です。
 
 .. code-block:: text
 
    各レース1頭ずつ              -> "1-2-3-4-5"
    一部のレースで複数頭指定     -> "1,2-3-4,5-6-7,8"
+
+- ``get_bet_instance()`` と同じく内部ロックを取りません。
 
 bet_win5
 ========
@@ -752,21 +914,23 @@ bet_win5
 
 .. code-block:: python
 
-   ret = bet_win5(betDataWin5, wait_ms=500)
+   ret = bet_win5(betDataWin5, waitMiliSeconds=DEFAULT_WAIT_TIME)
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 10 70
+   :widths: 25 10 65
 
    * - 引数
      - 型
      - 説明
    * - ``betDataWin5``
-     - 
+     -
      - ST_BET_DATA_WIN5 インスタンス
-   * - ``wait_ms``
+   * - ``waitMiliSeconds``
      - int
-     - 購入リクエスト間隔（ms）。デフォルト: 500ms
+     - 分割購入時のリクエスト間隔（ms）。デフォルト: 1,000（``DEFAULT_WAIT_TIME``）
+
+- 1回の購入上限（**50 組み合わせ**\ ）を超える場合は自動的に分割購入します。
 
 .. note::
 
@@ -796,8 +960,9 @@ get_purchase_data
 get_odds
 ========
 
-指定レース・式別のオッズを取得します（**中央競馬・地方競馬に対応**）。
-単勝・複勝は基本オッズ、枠連〜三連単は全通りのオッズ表を取得します。
+指定レース・式別のオッズを取得します（**中央競馬・地方競馬・海外競馬に対応**）。
+単勝・複勝は基本オッズ、枠連〜三連単は全通りのオッズ表を取得します
+（三連単18頭なら 4,896 点）。
 
 .. code-block:: python
 
@@ -828,7 +993,13 @@ get_odds
 - オッズは 10 倍の整数（``Odds``）で格納されます。実際の倍率は ``Odds / 10.0``。
 - 複勝・ワイドは下限を ``Odds``、上限を ``OddsHigh`` に格納します。
 - ``Status`` が 1（発売中止）／2（オッズ未取得）の場合、``Odds`` / ``OddsHigh`` は 0 です。
-- 海外開催・当日非開催の場合は ``UNSUCCESS`` を返します。
+- 全式別に対応します。開催場によって発売のない式別（地方の枠連等）は、
+  サーバ側のエラーまたは明細 0 件になります。
+- **海外開催にも対応しています。** ただし海外は中央競馬のセッションを使うため
+  **中央競馬へのログインが必要** で、海外競馬に枠は無いため
+  **枠連を指定すると** ``UNSUCCESS`` **を返します**\ 。
+  取得できるオッズの内容は中央・地方と同じです。
+- 指定した開催場が **当日開催されていない場合は** ``UNSUCCESS`` を返します。
 
 ``oddsData.OddsDetail`` の各要素（ST_ODDS_DETAIL）:
 
@@ -865,7 +1036,7 @@ get_odds
 get_race_card
 =============
 
-指定レースの出馬表（出走馬一覧）を取得します（**中央競馬・地方競馬に対応**）。
+指定レースの出馬表（出走馬一覧）を取得します（**中央競馬・地方競馬・海外競馬に対応**）。
 各出走馬の枠番・馬番・馬名・性齢・馬体重・騎手・斤量・調教師・単勝人気・単勝/複勝オッズを取得します。
 
 .. code-block:: python
@@ -878,6 +1049,17 @@ get_race_card
 - ``raceCard.RaceName`` はレース名（**UTF-8 の文字列**）です。出馬表応答自体にはレース名が含まれないため、内部で取得する開催メニューから抽出しています。取得できない場合は空文字です。
 - 馬名・騎手名・調教師名などの文字列フィールドは **UTF-8 の bytes** です。利用時は ``.decode('utf-8')`` してください。
 - 斤量・オッズは 10 倍の整数で格納されます。実際の値は ``/ 10.0``。
+- 指定した開催場が **当日開催されていない場合は** ``UNSUCCESS`` を返します。
+
+.. note::
+
+   **海外開催について** — I-PAT が返す項目が国内と異なるため、取得できるのは
+   ``Umaban`` ・ ``HorseName`` ・ ``WinPopular`` ・単勝/複勝オッズのみです。
+   海外競馬には枠・性齢・馬体重・調教師などの概念が無いため、
+   ``Wakuban`` ・ ``Sex`` ・ ``Age`` ・ ``Weight`` ・ ``JockeyName`` ・ ``Burden`` ・
+   ``TrainerName`` は **0 または空 bytes** になります。
+   海外の開催メニューはレース名を返さないため ``RaceName`` も **空文字** です。
+   また海外開催は **中央競馬へのログインが必要** です。
 
 ``raceCard.EntryData`` の各要素（ST_ENTRY_DETAIL）:
 
@@ -930,6 +1112,7 @@ get_notice
    notice = ST_NOTICE_DATA()
    ret = get_notice(notice)
 
+- ログイン済みのセッションが必要です（**中央を優先し、失敗時は地方へフォールバック**\ します）。
 - ネイティブ側のメモリは関数内部で自動解放されます。利用者側での解放は不要です。
 - ``notice.ItemData`` の各要素は ``ST_NOTICE_ITEM`` です。
 - ``Title`` / ``Date`` / ``Url`` などの文字列フィールドは **UTF-8 の bytes** です。利用時は ``.decode('utf-8')`` してください。
@@ -970,7 +1153,7 @@ bet_win5_auto
 =============
 
 WIN5 を「セレクト」または「ランダム」で購入します。買い目を指定する ``bet_win5`` と違い、
-**買い目はサーバが生成**します。
+**買い目はサーバが生成**\ します。
 
 .. code-block:: python
 
@@ -991,7 +1174,9 @@ WIN5 を「セレクト」または「ランダム」で購入します。買い
   呼び出す前に必ず利用者の確認を取ってください。
 - **セレクトで軸をすべて** ``0`` **にすることはできません。** 電文がランダムと同一になり
   サーバに拒否されます。全おまかせにしたい場合は ``WIN5_AUTO_RANDOM`` を使ってください。
-- 点数の上限は 50 点です。合計金額が 1,000,000 円を超える場合は送信せずに ``UNSUCCESS`` を返します。
+- 点数の上限は 50 点で、``bet_win5`` と違い **分割送信は行いません**\ 。
+- 合計金額はサーバが生成した買い目から算出され、1,000,000 円を超える場合は
+  送信せずに ``UNSUCCESS`` を返します。
 - WIN5 は中央競馬のみ対応です。
 
 .. code-block:: python
@@ -1017,7 +1202,7 @@ DLL 内部のログを受け取るハンドラを登録します（``None`` で�
 **入出金の失敗調査にはこの API が必須です。** 入出金はサーバレンダリングの HTML フォームで、
 ``erc`` / ``erm`` のような機械可読なエラーコードを返しません。失敗した段階・画面 ID・
 画面タイトルは ``LOG_LEVEL_ERROR`` で通知されますが、**サーバ側の拒否理由が載る
-応答本文の抜粋は** ``LOG_LEVEL_TRACE`` **を指定したときのみ**通知されます。
+応答本文の抜粋は** ``LOG_LEVEL_TRACE`` **を指定したときのみ**\ 通知されます。
 
 .. list-table::
    :header-rows: 1
@@ -1036,11 +1221,11 @@ DLL 内部のログを受け取るハンドラを登録します（``None`` で�
 
 - ハンドラは ``handler(level: int, message: str)`` の形で呼ばれます。
   ``message`` は UTF-8 からデコード済みの ``str`` です（他の API の bytes と異なります）。
-- ハンドラは **DLL 内部ロックを保持したまま**呼ばれます。
+- ハンドラは **DLL 内部ロックを保持したまま**\ 呼ばれます。
   **ハンドラ内から本モジュールの API を呼び返さないでください**\ （デッドロックします）。
-- ``login`` 実行中は中央・地方の **2 スレッドから同時に**呼ばれます。
+- ``login`` 実行中は中央・地方の **2 スレッドから同時に**\ 呼ばれます。
 - ``None`` を渡して戻った時点で実行中のハンドラは存在しないため、対象を安全に破棄できます。
-- 応答本文の抜粋には**口座番号や残高が含まれ得ます**。``LOG_LEVEL_TRACE`` は調査時のみ指定し、
+- 応答本文の抜粋には\ **口座番号や残高が含まれ得ます**\ 。``LOG_LEVEL_TRACE`` は調査時のみ指定し、
   ログの取り扱いに注意してください。
 
 .. code-block:: python
@@ -1206,10 +1391,10 @@ WIN5 の購入
            if (ret & 1) == 1:
                print("入金成功")
 
-           # 入金（ネットワーク不安定時に最大 3 回だけリトライ）
-           ret = deposit(1000, retry_count=3)
+           # 入金（準備段階のリトライを最大 3 回に制限）
+           ret = deposit(1000, retryCount=3)
            if (ret & 1) != 1:
-               print("3回試みても入金できませんでした。")
+               print("入金できませんでした。原因は set_log_callback のログで確認する。")
 
            # 全額出金
            ret = withdraw()
@@ -1236,7 +1421,7 @@ WIN5 の購入
                return
 
            # 残高不足時に 3,000円 自動入金、反映確認タイムアウト 15秒
-           set_auto_deposit_flag(True, deposit_value=3000, confirm_timeout=15000)
+           set_auto_deposit_flag(True, 3000, confirmTimeout=15000)
 
            betData = ST_BET_DATA()
            ret = get_bet_instance(
@@ -1336,8 +1521,8 @@ WIN5 の購入
        if (ret &  2): flags.append("UNSUCCESS")
        if (ret &  4): flags.append("FAILED_CHUOU")
        if (ret &  8): flags.append("FAILED_CHIHOU")
-       if (ret & 16): flags.append("FAILED_COM_CHUOU")
-       if (ret & 32): flags.append("FAILED_COM_CHIHOU")
+       if (ret & 16): flags.append("FAILED_COMMUNICATE_CHUOU")
+       if (ret & 32): flags.append("FAILED_COMMUNICATE_CHIHOU")
        print(f"[{func_name}] {' | '.join(flags)}")
 
    def main():
@@ -1384,15 +1569,39 @@ WIN5 の購入
 
 入出金に使用できる金融機関は以下の通りです。
 
-- PayPay 銀行
-- 楽天銀行
-- 三井住友銀行
-- 三菱 UFJ 銀行
-- 住信 SBI ネット銀行
-- ゆうちょ銀行
-- りそな銀行
-- 埼玉りそな銀行
-- au じぶん銀行
+.. list-table::
+   :header-rows: 1
+   :widths: 60 40
+
+   * - 金融機関名
+     - コード
+   * - PayPay 銀行
+     - 2033
+   * - 楽天銀行
+     - 2036
+   * - 三井住友銀行
+     - 2009
+   * - 三菱 UFJ 銀行
+     - 2005
+   * - 住信 SBI ネット銀行
+     - 2038
+   * - ゆうちょ銀行
+     - 2900
+   * - りそな銀行
+     - 2010
+   * - 埼玉りそな銀行
+     - 2017
+   * - au じぶん銀行
+     - 2039
+
+金融機関コードはログイン応答から自動的に取得します。
+取得できない場合のみ、上記のコードを先頭から順に試行し、登録されている口座が
+見つかった時点でその口座を使用します。
+
+.. warning::
+
+   入出金を利用できるのは **即PAT（ネットバンク）会員** のみです。
+   A-PAT（Pay-easy）会員は ``deposit()`` / ``withdraw()`` が ``UNSUCCESS`` を返します。
 
 ------------------------------
 開発者向け: リリース手順
