@@ -64,8 +64,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # 他のアクションと違い版を固定しているのは、astral-sh が v7 を最後に
+      # 浮動メジャータグ (v8 / v9) の発行をやめているため。`@v9` は解決できない。
+      # 更新するときは releases から最新のタグ名を確認して差し替えること。
       - name: Setup uv
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v9.0.0
 
       # deploy_common.bat と同じく [project] テーブルの version だけを +1 する。
       # "version" キーは他テーブルにも現れ得るため、テーブル範囲を切り出してから置換する。
