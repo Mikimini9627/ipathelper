@@ -3,7 +3,8 @@ name: Release to PyPI
 # IpatHelperNative の CI が新しい IpatHelper.dll を push してきたら、
 # パッチバージョンを +1 して build し、PyPI へ公開して bump をコミットする。
 #
-# ローカルの deploy_prd.bat / deploy_dev.bat と同じ手順を CI 上で行うもの。
+# かつてローカルで実行していた deploy_prd.bat / deploy_dev.bat の置き換え。
+# 二重にバージョンを上げる事故を避けるため、それらのバッチは削除済み。
 #
 # 本番 PyPI へは Trusted Publishing (OIDC) で公開するため、API トークンを
 # 保存していない。GitHub が発行する短命の OIDC トークンを PyPI が検証し、

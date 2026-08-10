@@ -1607,99 +1607,73 @@ WIN5 の購入
 開発者向け: リリース手順
 ------------------------------
 
+公開は GitHub Actions が自動で行います。**手元での公開作業は不要**\ です
+（``deploy_prd.bat`` などのバッチは廃止しました）。
+
 リポジトリ構成
 ==============
 
 .. code-block:: text
 
    ipathelper/
-   ├── deploy_prd.bat      ... PyPI へ公開する入口
-   ├── deploy_dev.bat      ... TestPyPI へ公開する入口
-   ├── deploy_common.bat   ... バージョン更新・ビルド・公開の本体
-   ├── publish.py          ... ~/.pypirc から認証情報を読み uv publish を実行する
-   ├── pyproject.toml      ... [project] の version を deploy_common.bat が自動更新する
+   ├── .github/workflows/release.yml  ... バージョン更新・ビルド・PyPI 公開を行う
+   ├── pyproject.toml                 ... [project] の version を release.yml が自動更新する
    └── ipathelper/
        ├── __init__.py     ... DLL の読み込み・解放
        ├── ipathelper.py   ... 各 API のラッパー
        ├── x64/IpatHelper.dll
        └── x86/IpatHelper.dll
 
-事前準備
-========
+自動公開の流れ
+==============
 
-``uv`` をインストールし、``~/.pypirc`` に ``[pypi]`` / ``[testpypi]`` セクションを用意します。
-
-.. code-block:: ini
-
-   [pypi]
-   repository = https://upload.pypi.org/legacy/
-   username = __token__
-   password = pypi-xxxxxxxx
-
-   [testpypi]
-   repository = https://test.pypi.org/legacy/
-   username = __token__
-   password = pypi-xxxxxxxx
-
-ネイティブ DLL を更新する場合は、ビルドした 32bit / 64bit の ``IpatHelper.dll`` を
-``ipathelper/x86/`` と ``ipathelper/x64/`` へ配置してください。
-
-公開
-====
-
-.. code-block:: console
-
-   > deploy_dev.bat      :: TestPyPI へ公開
-   > deploy_prd.bat      :: PyPI へ公開
-
-いずれも次の順に処理されます。
+``IpatHelperNative`` の CI がビルドした ``IpatHelper.dll`` を
+``ipathelper/x64/`` と ``ipathelper/x86/`` へ push してくると、それを合図に
+``release.yml`` が起動して次を順に行います。
 
 1. ``pyproject.toml`` の ``[project]`` セクションから ``version`` を読み取り、**パッチ番号を +1** して書き戻す
 2. ``dist`` を削除して ``uv build``
-3. ``publish.py`` 経由で ``uv publish``
+3. PyPI へ公開する
+4. バージョン更新をコミットして ``master`` へ push する
 
-公開せずにバージョン計算とビルドだけを確認したい場合は ``/dryrun`` を付けます。
-このときバージョン番号は書き換わりません。
-
-.. code-block:: console
-
-   > deploy_prd.bat /dryrun
+DLL のパスが変わったときだけ起動するため、他のコミットでは公開は走りません。
 
 .. note::
 
-   バージョン番号は dev / prd で **共通のカウンタ**\ です。
-   PyPI・TestPyPI とも同一バージョンの再アップロードを拒否するため、
-   カウンタを共通にして常に未使用の番号が取れるようにしています
-   （その結果、本番側の番号が飛ぶことがありますが問題ありません）。
+   本番 PyPI へは **Trusted Publishing（OIDC）** で公開しており、API トークンは
+   どこにも保存していません。PyPI 側に「``Mikimini9627/ipathelper`` の
+   ``release.yml`` からの公開」を publisher として登録することで成立しています。
+
+手動で公開する
+==============
+
+DLL を更新していないタイミングで公開したい場合は、GitHub の Actions タブから
+``Release to PyPI`` を ``workflow_dispatch`` で実行します。入力は 2 つです。
+
+.. list-table::
+   :header-rows: 1
+
+   * - 入力
+     - 意味
+   * - ``target``
+     - ``pypi``（既定）または ``testpypi``
+   * - ``dryrun``
+     - ``true`` にするとバージョン更新も公開も行わず、ビルドのみ確認する
+
+``testpypi`` を選ぶ場合のみ、リポジトリの secret に ``TESTPYPI_API_TOKEN`` が必要です
+（TestPyPI 側には publisher を登録していないため、こちらはトークン方式です）。
 
 .. warning::
 
-   バージョンは ``pyproject.toml`` の値を基準に +1 されます。
-   そのため ``pyproject.toml`` が **PyPI の公開済み最新版と一致している**\ ことが前提です。
+   **``pyproject.toml`` の ``version`` を手で上げないでください。**
+   CI が +1 するため、手動でも上げると番号が飛びます。
 
-   別の環境で公開した後などにこの値が古いままだと、既に存在する番号を作ってしまい、
-   ビルドは通っても最後のアップロードで拒否されます。公開前に
-   `PyPI の最新版 <https://pypi.org/project/ipathelper/>`__ と突き合わせ、
-   ずれていれば ``pyproject.toml`` の ``version`` を実際の最新版に合わせてください。
+   バージョンは ``pyproject.toml`` の値を基準に +1 されるため、この値が
+   **PyPI の公開済み最新版と一致している**\ ことが前提です。ずれていると
+   既に存在する番号を作ってしまい、ビルドは通っても最後のアップロードで拒否されます。
 
-   ずれの確認は次のコマンドでも行えます。
+   ずれの確認は次のコマンドで行えます。
 
    .. code-block:: console
 
       > uv run --no-project --with requests python -c "import requests;print(requests.get('https://pypi.org/pypi/ipathelper/json').json()['info']['version'])"
-
-バッチ編集時の注意
-==================
-
-``deploy_common.bat`` は ``pyproject.toml`` を 1 行ずつ読み直して書き戻すため、
-次の点を崩さないでください。
-
-- **バッチ本文は ASCII のみ・改行は CRLF** にする。
-  先頭でコンソールのコードページを UTF-8（65001）へ切り替えているため、
-  バッチ内に非 ASCII 文字があるとコードページ次第で構文エラーになります。
-- コードページの切り替えは必須です。``pyproject.toml`` は UTF-8 で日本語（``description``）を
-  含むため、CP932 のまま読み書きすると再エンコードされて文字化けします。
-- 行の出力は ``echo(!line!`` の形（遅延展開）を使う。
-  ``requires-python = ">=3.12"`` の ``>`` がリダイレクトとして解釈されるのを防いでいます。
-- 読み込みは ``findstr /n "^"`` で行番号を付けてから除去する。
-  ``for /f`` は空行を読み飛ばすため、そのままでは TOML の空行が失われます。
