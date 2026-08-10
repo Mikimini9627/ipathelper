@@ -1,0 +1,149 @@
+name: Release to PyPI
+
+# IpatHelperNative の CI が新しい IpatHelper.dll を push してきたら、
+# パッチバージョンを +1 して build し、PyPI へ公開して bump をコミットする。
+#
+# ローカルの deploy_prd.bat / deploy_dev.bat と同じ手順を CI 上で行うもの。
+#
+# 本番 PyPI へは Trusted Publishing (OIDC) で公開するため、API トークンを
+# 保存していない。GitHub が発行する短命の OIDC トークンを PyPI が検証し、
+# その場限りの公開権限を発行する仕組み。事前に PyPI 側で
+# 「Mikimini9627/ipathelper の release.yml からの公開」を publisher として
+# 登録しておく必要がある (未登録だと mint-token が 403 で落ちる)。
+# 動作条件は下の permissions の id-token: write。
+#
+# TestPyPI (手動実行時のみ) は publisher を別途登録する必要があるため、
+# 従来どおり secret TESTPYPI_API_TOKEN を使う。使わないなら未登録でよい。
+#
+# 無限ループにはならない: 下の push トリガーは DLL のパスだけを見ており、
+# かつこのワークフロー自身の bump コミットは GITHUB_TOKEN による push なので
+# ワークフローを再発火させない。
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'ipathelper/x64/IpatHelper.dll'
+      - 'ipathelper/x86/IpatHelper.dll'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: '公開先'
+        type: choice
+        options:
+          - pypi
+          - testpypi
+        default: pypi
+      dryrun:
+        description: 'ビルドのみ (バージョン更新も公開もしない)'
+        type: boolean
+        default: false
+
+# 公開は直列化する。並走するとバージョン採番が衝突する。
+concurrency:
+  group: release-pypi
+  cancel-in-progress: false
+
+permissions:
+  # bump コミットの push に必要
+  contents: write
+  # Trusted Publishing の OIDC トークン発行に必要。これが無いと
+  # uv publish --trusted-publishing always が「トークンを取得できない」で失敗する。
+  id-token: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    env:
+      TARGET: ${{ inputs.target || 'pypi' }}
+      DRYRUN: ${{ inputs.dryrun && '1' || '0' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      # deploy_common.bat と同じく [project] テーブルの version だけを +1 する。
+      # "version" キーは他テーブルにも現れ得るため、テーブル範囲を切り出してから置換する。
+      - name: Bump patch version
+        id: bump
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, sys
+
+          path = pathlib.Path("pyproject.toml")
+          # newline="" で改行変換を止める。バージョン行以外は 1 バイトも動かさない。
+          with path.open("r", encoding="utf-8", newline="") as f:
+              text = f.read()
+
+          block = re.search(r"(?ms)^\[project\][^\n]*\n(?:(?!^\[).*\n)*", text)
+          if not block:
+              sys.exit("[project] テーブルが見つかりません")
+
+          found = re.search(r'(?m)^version\s*=\s*"([^"]+)"', block.group(0))
+          if not found:
+              sys.exit("[project] に version がありません")
+
+          current = found.group(1)
+          parts = current.split(".")
+          if len(parts) != 3 or not parts[2].isdigit():
+              sys.exit(f"想定外のバージョン形式: {current}")
+
+          dryrun = os.environ["DRYRUN"] == "1"
+          new = current if dryrun else f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}"
+
+          if not dryrun:
+              start = block.start() + found.start()
+              end = block.start() + found.end()
+              with path.open("w", encoding="utf-8", newline="") as f:
+                  f.write(text[:start] + f'version = "{new}"' + text[end:])
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"version={new}\n")
+          print(f"{current} -> {new}" + (" (dryrun: 書き換えなし)" if dryrun else ""))
+          PY
+
+      - name: Build
+        run: |
+          rm -rf dist
+          uv build
+
+      # 本番 PyPI は Trusted Publishing。--trusted-publishing always を指定して、
+      # OIDC が使えないときに黙って別の認証へ落ちず、その場で失敗させる
+      # (既定の automatic だとフォールバックして原因が分かりにくくなる)。
+      # TestPyPI は publisher 未登録のため従来どおりトークンを使う。
+      - name: Publish to ${{ env.TARGET }}
+        if: env.DRYRUN != '1'
+        env:
+          TESTPYPI_TOKEN: ${{ secrets.TESTPYPI_API_TOKEN }}
+        run: |
+          if [ "$TARGET" = "testpypi" ]; then
+            if [ -z "$TESTPYPI_TOKEN" ]; then
+              echo "::error::secret TESTPYPI_API_TOKEN が未登録です" && exit 1
+            fi
+            UV_PUBLISH_TOKEN="$TESTPYPI_TOKEN" uv publish --publish-url https://test.pypi.org/legacy/
+          else
+            uv publish --trusted-publishing always
+          fi
+
+      # 公開が成功したときだけ bump をコミットする (バッチと同じ順序)。
+      - name: Commit and push the version bump
+        if: env.DRYRUN != '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Release ${{ steps.bump.outputs.version }} (published to ${TARGET})"
+          # DLL 同期の push と入れ違いになっても落ちないようリベースしてから push する
+          git pull --rebase origin master
+          git push origin HEAD:master
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipathelper-${{ steps.bump.outputs.version }}
+          path: dist/
