@@ -1047,6 +1047,8 @@ get_race_card
 - ネイティブ側のメモリは関数内部で自動解放されます。利用者側での解放は不要です。
 - ``raceCard.EntryData`` の各要素は ``ST_ENTRY_DETAIL`` です。
 - ``raceCard.RaceName`` はレース名（**UTF-8 の文字列**）です。出馬表応答自体にはレース名が含まれないため、内部で取得する開催メニューから抽出しています。取得できない場合は空文字です。
+- ``raceCard.Deadline`` は**発売締切時刻**（``"HH:MM"``）です。同じく開催メニューから抽出しています。取得できない場合は空文字です。
+- ``raceCard.RaceStatus`` はそのレースの**発売状態**です（``RACE_STATUS_ON_SALE`` =0 発売中 / ``RACE_STATUS_CLOSED`` =1 発売終了 / ``RACE_STATUS_CANCELED`` =2 発売中止 / ``RACE_STATUS_BEFORE_SALE`` =3 発売前 / ``RACE_STATUS_UNKNOWN`` =0xFF 取得できなかった）。締切時刻だけでは購入可否が判断できないため併せて参照してください。
 - 馬名・騎手名・調教師名などの文字列フィールドは **UTF-8 の bytes** です。利用時は ``.decode('utf-8')`` してください。
 - 斤量・オッズは 10 倍の整数で格納されます。実際の値は ``/ 10.0``。
 - 指定した開催場が **当日開催されていない場合は** ``UNSUCCESS`` を返します。
@@ -1059,6 +1061,7 @@ get_race_card
    ``Wakuban`` ・ ``Sex`` ・ ``Age`` ・ ``Weight`` ・ ``JockeyName`` ・ ``Burden`` ・
    ``TrainerName`` は **0 または空 bytes** になります。
    海外の開催メニューはレース名を返さないため ``RaceName`` も **空文字** です。
+   一方 ``Deadline`` と ``RaceStatus`` は**海外開催でも取得できます**（開催メニューの ``jg`` は海外にも含まれるため）。
    また海外開催は **中央競馬へのログインが必要** です。
 
 ``raceCard.EntryData`` の各要素（ST_ENTRY_DETAIL）:
@@ -1092,6 +1095,7 @@ get_race_card
    ret = get_race_card(KAISAI_TOKYO, 11, raceCard)
    if (ret & 1) == 1:
        print(f"レース名: {raceCard.RaceName}")
+       print(f"締切: {raceCard.Deadline} / 発売状態: {raceCard.RaceStatus}")
        print(f"オッズ更新時刻: {raceCard.OddsTime} / 出走頭数: {raceCard.EntryCount}")
        for e in raceCard.EntryData:
            name = e.HorseName.decode('utf-8')
