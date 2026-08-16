@@ -1049,6 +1049,7 @@ get_race_card
 - ``raceCard.RaceName`` はレース名（**UTF-8 の文字列**）です。出馬表応答自体にはレース名が含まれないため、内部で取得する開催メニューから抽出しています。取得できない場合は空文字です。
 - ``raceCard.Deadline`` は**発売締切時刻**（``"HH:MM"``）です。同じく開催メニューから抽出しています。取得できない場合は空文字です。
 - ``raceCard.RaceStatus`` はそのレースの**発売状態**です（``RACE_STATUS_ON_SALE`` =0 発売中 / ``RACE_STATUS_CLOSED`` =1 発売終了 / ``RACE_STATUS_CANCELED`` =2 発売中止 / ``RACE_STATUS_BEFORE_SALE`` =3 発売前 / ``RACE_STATUS_UNKNOWN`` =0xFF 取得できなかった）。締切時刻だけでは購入可否が判断できないため併せて参照してください。
+- ``raceCard.Grade`` は**グレード**（``GI`` / ``GII`` / ``GIII`` / ``J・GI`` / ``J・GII`` / ``J・GIII`` / ``L``）です。重賞でない場合と取得できない場合は空文字です。``raceCard.RaceNumber`` は**開催回数**（「第30回」の 30。取得できない場合は 0）です。どちらも開催メニューの ``rn`` から取得するため追加の通信は発生しません。海外開催でも取得できますが、I-PAT が返すグレードは ``GI``〜``GIII`` のみです。
 - 馬名・騎手名・調教師名などの文字列フィールドは **UTF-8 の bytes** です。利用時は ``.decode('utf-8')`` してください。
 - 斤量・オッズは 10 倍の整数で格納されます。実際の値は ``/ 10.0``。
 - 指定した開催場が **当日開催されていない場合は** ``UNSUCCESS`` を返します。
@@ -1096,6 +1097,7 @@ get_race_card
    if (ret & 1) == 1:
        print(f"レース名: {raceCard.RaceName}")
        print(f"締切: {raceCard.Deadline} / 発売状態: {raceCard.RaceStatus}")
+       print(f"グレード: {raceCard.Grade} / 第{raceCard.RaceNumber}回")
        print(f"オッズ更新時刻: {raceCard.OddsTime} / 出走頭数: {raceCard.EntryCount}")
        for e in raceCard.EntryData:
            name = e.HorseName.decode('utf-8')
