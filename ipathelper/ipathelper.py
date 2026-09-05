@@ -30,7 +30,8 @@ KAISAI_SAGA = 23
 KAISAI_LONGCHAMP = 24
 KAISAI_SHATIN = 25
 KAISAI_SANTAANITA = 26
-KAISAI_DEAUVILE = 27
+KAISAI_DEAUVILLE = 27
+KAISAI_DEAUVILE = KAISAI_DEAUVILLE  # 綴りを誤った旧名。値は同じ。新規コードでは KAISAI_DEAUVILLE を使うこと
 KAISAI_CHURCHILLDOWNS = 28
 KAISAI_ABDULAZIZ = 29
 KAISAI_ASCOT = 30
@@ -55,12 +56,16 @@ SHIKIBETSU_QUINELLAPLACE = 5
 SHIKIBETSU_EXACTA = 6
 SHIKIBETSU_TRIO	= 7
 SHIKIBETSU_TRIFECTA	= 8
+# 応援馬券(同一馬の単勝＋複勝のセット)。方式は通常のみ・馬番1頭のみ。
+# 合計金額は指定額の2倍になり、購入履歴には単勝と複勝が別々の馬券として現れる。
+# get_odds にこの式別は指定できない(UNSUCCESS)。
+SHIKIBETSU_WINPLACE = 9
 
 ODDS_STATUS_NORMAL = 0
 ODDS_STATUS_CANCEL = 1
 ODDS_STATUS_UNACQUIRED = 2
 
-# ST_RACECARD_DATA.RaceStatus の値(開催メニュー jg 由来)
+# ST_RACECARD_DATA.RaceStatus の値
 RACE_STATUS_ON_SALE = 0         # 発売中
 RACE_STATUS_CLOSED = 1          # 発売終了
 RACE_STATUS_CANCELED = 2        # 発売中止
@@ -70,10 +75,16 @@ RACE_STATUS_UNKNOWN = 0xFF      # 取得できなかった
 DAYTYPE_TODAY = 1
 DAYTYPE_BEFORE = 2
 
-BETFLAG_NORMAL = 1
-BETFLAG_WIN5 = 2
-BETFLAG_INTERNAL = 3
+# ST_TICKET_DATA_DETAIL.BetFlag の値(券種)
+BETFLAG_NORMAL = 0
+BETFLAG_WIN5 = 1
+BETFLAG_INTERNATIONAL = 2       # 海外。中央の購入履歴に混在する
+BETFLAG_INTERNAL = BETFLAG_INTERNATIONAL  # 旧名。値は同じ
 
+# ST_TICKET_DATA_DETAIL.DecisionFlag の値(確定フラグ)
+# PARSE_FAILED(0) はその明細を解析できなかったことを表す。
+# DECISIONFLAG_* は 1 始まりのため、正常な確定フラグと衝突しない。
+DECISIONFLAG_PARSE_FAILED = 0
 DECISIONFLAG_DEFAULT = 1
 DECISIONFLAG_NORMAL = 2
 DECISIONFLAG_DEADLINE = 3
@@ -82,9 +93,9 @@ DECISIONFLAG_FLATMATESCANCEL = 5
 DECISIONFLAG_HIT = 6
 DECISIONFLAG_MISS = 7
 DECISIONFLAG_BACK = 8
-DECISIONFLAG_PARTCANCEL = 10
-DECISIONFLAG_INVALID = 11
-DECISIONFLAG_SALECANCEL = 12
+DECISIONFLAG_PARTCANCEL = 9
+DECISIONFLAG_INVALID = 10
+DECISIONFLAG_SALECANCEL = 11
 
 WEEKDAY_SUNDAY = 1
 WEEKDAY_MONDAY = 2
@@ -100,10 +111,32 @@ FAILED_CHUOU = 4
 FAILED_CHIHOU = 8
 FAILED_COMMUNICATE_CHUOU = 16
 FAILED_COMMUNICATE_CHIHOU = 32
+# サービス時間外(ログインフォームが提供されていない)。login() でのみ立ち、
+# FAILED_CHUOU / FAILED_CHIHOU と併せて立つ。最も多い原因は投票受付時間外で、
+# 特に地方競馬は営業時間外に必ずこの状態になる(メンテナンス中も同じ状態になり区別できない)。
+# このフラグが立った場合、即座のリトライは必ず失敗する。時間をおいて再試行すること。
+FAILED_OUT_OF_SERVICE = 64
+
+# 買い目の列数
+UMABAN_COLUMN_COUNT = 3         # ST_BET_DATA.Umaban の要素数
+UMABAN_TICKET_COLUMN_COUNT = 5  # 購入明細 HorseNo1〜HorseNo5(WIN5 の5レース分を含む)
+WIN5_RACE_COUNT = 5             # WIN5 のレース数
+
+# 1回の送信あたりの合計購入金額の上限(円)。1点でもこの上限が効くため、
+# 1点あたりの金額の上限も同じ値になる。
+MAX_TOTAL_AMOUNT_PER_SEND = 1000000
+
+MAX_WIN5_AUTO_BET_COUNT = 50    # bet_win5_auto() で生成させられる点数の上限
 
 DEFAULT_RETRY_COUNT = 10
+DEPOSIT_DEFAULT_VALUE = 1000    # set_auto_deposit_flag() の既定入金額(円)
+DEFAULT_CONFIRM_TIMEOUT = 10000 # 残高反映を待つ既定のタイムアウト(ms)
+
+# 分割送信の間隔(ms)。タイムアウトではない。
+# DEFAULT_BET_INTERVAL は DLL 側の既定値。本モジュールの bet()/bet_win5() は
+# より余裕を持たせた DEFAULT_WAIT_TIME を既定で渡す。
+DEFAULT_BET_INTERVAL = 500
 DEFAULT_WAIT_TIME = 1000
-DEFAULT_CONFIRM_TIMEOUT = 10000
 
 WIN5_AUTO_SELECT = 2    # WIN5 セレクト: 軸馬を指定し、残りはサーバが選ぶ
 WIN5_AUTO_RANDOM = 3    # WIN5 ランダム: すべてサーバが選ぶ
@@ -157,11 +190,9 @@ class ST_RACECARD_DATA:
         self.OddsTime = ""
         self.EntryCount = 0
         self.EntryData = []
-        self.RaceName = ""
-        self.Deadline = ""                      # 発売締切時刻 "HH:MM"(取得できない場合は空文字)
+        self.RaceName = ""                       # レース名(取得できない場合は空文字。海外開催でも取得できる)
+        self.Deadline = ""                       # 発売締切時刻 "HH:MM"(取得できない場合は空文字)
         self.RaceStatus = RACE_STATUS_UNKNOWN    # 発売状態(RACE_STATUS_*)
-        self.Grade = ""                          # グレード "GI"/"J・GI"/"L" 等(重賞でなければ空文字)
-        self.RaceNumber = 0                      # 開催回数(「第30回」の 30。取得できない場合は 0)
 
 class ST_NOTICE_DATA:
     def __init__(self):
@@ -172,13 +203,28 @@ class ST_NOTICE_DATA:
         self.ItemData = []      # お知らせ一覧(ST_NOTICE_ITEM のリスト)
 
 #構造体マーシャリング用クラス
+# ネイティブ側は unsigned char のため c_ubyte を使う。
+# c_byte(符号付き)にすると WIN5 明細の 0xFF が -1 として読めてしまう。
 class ST_TICKET_DATA_DETAIL(Structure):
-    _fields_ = [("DecisionFlag", c_byte), ("BetFlag", c_byte), ("Kaisai", c_ushort), ("RaceNo", c_byte), \
-        ("Week", c_byte), ("Method", c_byte), ("Type", c_byte), ("HorseNo1", c_uint), \
-        ("HorseNo2", c_uint), ("HorseNo3", c_uint), ("HorseNo4", c_uint), ("HorseNo5", c_uint), ("Multi", c_byte)]
+    '''
+        馬券1点分の詳細情報。
+
+        購入時の指定そのものではなく、投票内容から復元した値。
+        HorseNo1〜HorseNo5 の各列が何を指すかは Method(方式)と Type(式別)の
+        組み合わせで変わる。列を機械的に "-" で連結すると誤った買い目になる
+        (README「購入明細の読み方」を参照)。
+
+        馬番の判定は (HorseNo1 & (1 << (馬番 - 1))) != 0。枠連だけは馬番ではなく枠番。
+        マルチの判定は必ず Multi で行うこと(Method では判定できない)。
+        WIN5 の明細では HorseNo1〜HorseNo5 が第1〜第5レースに対応し、
+        Kaisai / RaceNo / Week / Method / Type は 0xFF(255)になる。
+    '''
+    _fields_ = [("DecisionFlag", c_ubyte), ("BetFlag", c_ubyte), ("Kaisai", c_ushort), ("RaceNo", c_ubyte), \
+        ("Week", c_ubyte), ("Method", c_ubyte), ("Type", c_ubyte), ("HorseNo1", c_uint), \
+        ("HorseNo2", c_uint), ("HorseNo3", c_uint), ("HorseNo4", c_uint), ("HorseNo5", c_uint), ("Multi", c_ubyte)]
 
 class ST_TICKET_DATA_INTERNAL(Structure):
-    _fields_ = [("DayFlag", c_byte), ("ReceiptNo", c_byte), ("Hour", c_byte), ("Minute", c_byte), \
+    _fields_ = [("DayFlag", c_ubyte), ("ReceiptNo", c_ubyte), ("Hour", c_ubyte), ("Minute", c_ubyte), \
         ("Kingaku", c_uint), ("Payout", c_uint), ("DetailCount", c_uint), ("DetailData", c_void_p)]
 
 class ST_PURCHASE_DATA_INTERNAL(Structure):
@@ -186,43 +232,42 @@ class ST_PURCHASE_DATA_INTERNAL(Structure):
          ("DayHaraimodosi", c_uint), ("TotalPurchase", c_uint), ("TotalHaraimodosi", c_uint), ("TicketCount", c_uint), ("TicketData", c_void_p)]
 
 class ST_BET_DATA(Structure):
-    _fields_ = [("Place", c_ushort), ("RaceNo", c_byte), ("Youbi", c_byte), ("Kaikata", c_byte),\
-         ("Shikibetsu", c_byte), ("Kingaku", c_uint), ("Umaban", c_uint * 3), ("TotalAmount", c_long),\
-         ("Multi", c_byte)]  # Multi: マルチかどうか(0:通常 1:マルチ)
+    _fields_ = [("Place", c_ushort), ("RaceNo", c_ubyte), ("Youbi", c_ubyte), ("Kaikata", c_ubyte),\
+         ("Shikibetsu", c_ubyte), ("Kingaku", c_uint), ("Umaban", c_uint * UMABAN_COLUMN_COUNT), \
+         ("TotalAmount", c_uint), ("Multi", c_ubyte)]  # Multi: マルチかどうか(0:通常 1:マルチ)
 
 class ST_BET_DATA_WIN5(Structure):
-    _fields_ = [("Kingaku", c_uint), ("Youbi", c_byte), ("Umaban", c_uint * 5)]
+    _fields_ = [("Kingaku", c_uint), ("Youbi", c_ubyte), ("Umaban", c_uint * WIN5_RACE_COUNT)]
 
 class ST_ODDS_DETAIL(Structure):
-    _fields_ = [("Type", c_byte), ("Horse1", c_byte), ("Horse2", c_byte), ("Horse3", c_byte), \
-        ("Status", c_byte), ("Odds", c_uint), ("OddsHigh", c_uint)]
+    _fields_ = [("Type", c_ubyte), ("Horse1", c_ubyte), ("Horse2", c_ubyte), ("Horse3", c_ubyte), \
+        ("Status", c_ubyte), ("Odds", c_uint), ("OddsHigh", c_uint)]
 
 class ST_ODDS_DATA_INTERNAL(Structure):
-    _fields_ = [("Place", c_ushort), ("RaceNo", c_byte), ("OddsTime", c_char * 8), \
+    _fields_ = [("Place", c_ushort), ("RaceNo", c_ubyte), ("OddsTime", c_char * 8), \
         ("DetailCount", c_uint), ("DetailData", c_void_p)]
 
 class ST_ENTRY_DETAIL(Structure):
     # 文字列フィールド(HorseName/Sex/JockeyName/TrainerName)はUTF-8のbytes。
     # 利用時は .decode('utf-8') で文字列化する。
-    _fields_ = [("Wakuban", c_byte), ("Umaban", c_byte), \
-        ("HorseName", c_char * 64), ("Sex", c_char * 8), ("Age", c_byte), \
-        ("WeightStatus", c_byte), ("Weight", c_ushort), \
-        ("WeightDiffCode", c_byte), ("WeightDiff", c_ushort), ("Apprentice", c_byte), \
+    _fields_ = [("Wakuban", c_ubyte), ("Umaban", c_ubyte), \
+        ("HorseName", c_char * 64), ("Sex", c_char * 8), ("Age", c_ubyte), \
+        ("WeightStatus", c_ubyte), ("Weight", c_ushort), \
+        ("WeightDiffCode", c_ubyte), ("WeightDiff", c_ushort), ("Apprentice", c_ubyte), \
         ("JockeyName", c_char * 48), ("Burden", c_ushort), ("TrainerName", c_char * 48), \
-        ("WinPopular", c_ushort), ("WinOddsStatus", c_byte), ("WinOdds", c_uint), \
-        ("PlaceOddsStatus", c_byte), ("PlaceOddsLow", c_uint), ("PlaceOddsHigh", c_uint)]
+        ("WinPopular", c_ushort), ("WinOddsStatus", c_ubyte), ("WinOdds", c_uint), \
+        ("PlaceOddsStatus", c_ubyte), ("PlaceOddsLow", c_uint), ("PlaceOddsHigh", c_uint)]
 
 class ST_RACECARD_DATA_INTERNAL(Structure):
     # RaceName はレース名(UTF-8のbytes)。ネイティブ側構造体の末尾に追加されたため、
     # EntryData(ポインタ)の後ろに配置する。
-    # Deadline(発売締切時刻)/RaceStatus(発売状態)/Grade(グレード)/RaceNumber(開催回数) も
-    # 同様に末尾へ追加されている。
+    # Deadline(発売締切時刻)/RaceStatus(発売状態) も同様に末尾へ追加されている。
     # ネイティブ側は呼び出し元が確保したこの領域へ書き込むため、
     # フィールドの順序・型が DLL の ST_RACECARD_DATA と一致していないとメモリ破壊になる。
-    _fields_ = [("Place", c_ushort), ("RaceNo", c_byte), ("OddsTime", c_char * 8), \
+    # 末尾へ勝手にフィールドを足さないこと(DLL が書かない領域を読むだけになる)。
+    _fields_ = [("Place", c_ushort), ("RaceNo", c_ubyte), ("OddsTime", c_char * 8), \
         ("EntryCount", c_uint), ("EntryData", c_void_p), ("RaceName", c_char * 128), \
-        ("Deadline", c_char * 8), ("RaceStatus", c_ubyte), \
-        ("Grade", c_char * 16), ("RaceNumber", c_ushort)]
+        ("Deadline", c_char * 8), ("RaceStatus", c_ubyte)]
 
 class ST_NOTICE_ITEM(Structure):
     # 文字列フィールド(Title/Date/Url/Icon/Color)はUTF-8のbytes。
@@ -240,7 +285,7 @@ def set_log_callback(handler, minLevel : int = LOG_LEVEL_INFO) -> None:
         DLL内部のログを受け取るハンドラを登録する(Noneで解除)
 
         handler は handler(level: int, message: str) の形で呼ばれる。
-        入出金は erc/erm のようなエラーコードを返さないため、失敗の原因を知るには
+        入出金は機械可読なエラーコードを返さないため、失敗の原因を知るには
         このログが唯一の手掛かりになる。失敗した段階・画面ID・タイトルは
         LOG_LEVEL_ERROR で通知されるが、サーバ側の拒否理由が載る応答本文の抜粋は
         LOG_LEVEL_TRACE を指定したときのみ通知される(口座番号や残高を含み得る)。
@@ -273,30 +318,73 @@ def set_log_callback(handler, minLevel : int = LOG_LEVEL_INFO) -> None:
 def login(iNetId : str, id : str, password : str, pars : str) -> int:
     '''
         ログイン処理実行
+
+        中央競馬と地方競馬へ並列でログインを試み、どちらか一方でも成功すれば
+        SUCCESS が立つ。失敗した系統は FAILED_CHUOU / FAILED_CHIHOU で判別する。
+
+        受付時間外・メンテナンス中は、それらと併せて FAILED_OUT_OF_SERVICE が立つ。
+        この場合の即時リトライは必ず失敗するため、時間をおいて再試行すること。
     '''
     return lib.Login(iNetId.encode('utf-8'), id.encode('utf-8'), password.encode('utf-8'), pars.encode('utf-8'))
 
 def logout() -> int:
     '''
         ログアウト処理実行
+
+        セッション情報と自動入金設定を初期化する。
+        サーバへの通知に失敗しても後始末は必ず行われ、本関数自体は成功を返す。
     '''
     return lib.Logout()
 
 def deposit(depositValue : int, retryCount : int = DEFAULT_RETRY_COUNT) -> int:
     '''
         入金処理実行
+
+        depositValue は100円以上かつ100円単位で指定する。
+        入金後、入金額が残高へ加算されたことを確認できるまで待機し、
+        反映を確認できた場合のみ成功を返す(待機時間の上限は
+        set_auto_deposit_flag の confirmTimeout)。
+
+        retryCount が適用されるのは入金実行前の準備段階のみ。入金の実行そのものは、
+        応答を受信できなくてもサーバ側で成立している可能性があるため再送しない
+        (二重入金の防止)。成否は残高への反映で判定する。
+
+        即PAT(ネットバンク)会員専用。A-PAT 会員は UNSUCCESS を返す。
+        登録口座が PayPay(コード決済アプリ)の場合も利用できず、通信を行わず
+        UNSUCCESS を返す(PayPay 銀行は従来どおり利用できる。両者は別物)。
     '''
     return lib.Deposit(depositValue, retryCount)
 
 def withdraw(retryCount : int = DEFAULT_RETRY_COUNT) -> int:
     '''
-        出金処理実行
+        出金処理実行(全額出金。出金額の指定は不要)
+
+        出金後、残高が0になったことを確認できるまで待機し、
+        反映を確認できた場合のみ成功を返す。
+
+        retryCount の適用範囲は deposit と同じで、出金の実行そのものは再送しない
+        (二重出金の防止)。deposit と同じく即PAT 会員専用で、
+        登録口座が PayPay(コード決済アプリ)の場合は UNSUCCESS を返す。
     '''
     return lib.Withdraw(retryCount)
 
 def get_purchase_data(purchaseData : ST_PURCHASE_DATA) -> int:
     '''
         購入状況取得処理実行
+
+        購入履歴は会場ごとに別々に保持されているため、ログイン済みの会場すべてから
+        取得して連結する(中央 → 地方の順)。海外の馬券は中央の履歴に含まれる。
+        残高・購入可能件数・当日/累計の金額は合算しない(中央・地方は同じ即PAT 口座を
+        共有するため、どちらか一方の値をそのまま返す)。
+
+        片方の会場だけ取得に失敗した場合は、取得できた分を返したうえで
+        FAILED_CHUOU / FAILED_CHIHOU を立てる(SUCCESS と同時に立つ)。
+        履歴の欠けを検出したい場合はこれらのフラグも確認すること。
+
+        明細(ST_TICKET_DATA_DETAIL)から買い目を復元する方法は
+        README「購入明細の読み方」を参照。列を機械的に連結すると誤った買い目になる。
+
+        ネイティブ側で確保されたメモリは本関数内で解放する。
     '''
     tempPurchaseData = ST_PURCHASE_DATA_INTERNAL()
 
@@ -313,7 +401,7 @@ def get_purchase_data(purchaseData : ST_PURCHASE_DATA) -> int:
     purchaseData.TotalHaraimodosi = tempPurchaseData.TotalHaraimodosi
     purchaseData.TicketCount = tempPurchaseData.TicketCount
 
-    if tempPurchaseData.TicketCount <= 0:
+    if tempPurchaseData.TicketCount <= 0 or not tempPurchaseData.TicketData:
         lib.ReleasePurchaseData(byref(tempPurchaseData))
         return returnValue
 
@@ -336,9 +424,12 @@ def get_purchase_data(purchaseData : ST_PURCHASE_DATA) -> int:
         tempTicketData.Payout = oneTicketData.Payout
         tempTicketData.ReceiptNo = oneTicketData.ReceiptNo
 
-        if oneTicketData.DetailCount <= 0:
-            lib.ReleasePurchaseData(byref(tempPurchaseData))
-            return returnValue
+        # 明細を持たない受付があっても、後続の受付は正常に返される。
+        # ここで打ち切ると以降の馬券をすべて取りこぼすため次の受付へ進む。
+        if oneTicketData.DetailCount <= 0 or not oneTicketData.DetailData:
+            tempTicketData.DetailCount = 0
+            purchaseData.TicketData.append(tempTicketData)
+            continue
 
         allDetailBytes = bytearray(string_at(oneTicketData.DetailData, \
             sizeof(ST_TICKET_DATA_DETAIL) * oneTicketData.DetailCount))
@@ -360,24 +451,52 @@ def get_bet_instance(kaisai : int, raceNo : int, year : int, month : int, day : 
                     houshiki : int, shikibetsu : int, kingaku : int, kaime : str, betData : ST_BET_DATA) -> int:
     '''
         馬券購入用インスタンス取得処理
+
+        raceNo は 1〜14、kingaku は100円以上 MAX_TOTAL_AMOUNT_PER_SEND 円以下・100円単位。
+        馬番は 1〜18(海外開催は 1〜24)で指定する。範囲外の馬番が含まれる場合は、
+        その馬番を無視するのではなく UNSUCCESS を返す
+        (指定より少ない点数で購入されるのを防ぐため)。
+
+        合計購入金額は betData.TotalAmount に自動計算されて格納される。
+        マルチ(HOUSHIKI_WHEEL_MULTI_*)を指定すると Kaikata は基底のながし方式に
+        正規化され、betData.Multi が 1 になる。
+
+        海外開催では枠連(SHIKIBETSU_BRACKETQUINELLA)を購入できない(UNSUCCESS)。
+        本関数は通信を行わないため、他のAPIの実行中でも並行して呼び出せる。
     '''
     return lib.GetBetInstance(kaisai, raceNo, year, month, day, houshiki, shikibetsu, kingaku, kaime.encode('utf-8'), byref(betData))
 
 def get_bet_instance_win5(kingaku : int, year : int, month : int, day : int, kaime : str, betData : ST_BET_DATA_WIN5) -> int:
     '''
         馬券購入用インスタンス取得処理(WIN5)
+
+        金額の上限は get_bet_instance と同じ MAX_TOTAL_AMOUNT_PER_SEND 円。
+        馬番は 1〜18 で指定する。get_bet_instance と同じく通信を行わない。
     '''
     return lib.GetBetInstanceWin5(kingaku, year, month, day, kaime.encode('utf-8'), byref(betData))
 
 def bet(betDataList : list, listCount : int, waitMiliSeconds : int = DEFAULT_WAIT_TIME) -> int:
     '''
         馬券購入処理実行
+
+        購入件数が1回の送信上限(中央255件・地方50件)を超える場合は自動的に分割送信する。
+        waitMiliSeconds はそのときの間隔(ms)で、タイムアウトではない。
+        間隔が短いと購入に失敗することがあるため、ネットワーク環境に応じて調整する。
+
+        DLL 側の既定値は DEFAULT_BET_INTERVAL(500ms)だが、本モジュールは
+        より余裕を持たせた DEFAULT_WAIT_TIME(1000ms)を既定で渡す。
+
+        応援馬券(SHIKIBETSU_WINPLACE)は送信時に単勝と複勝の2点へ展開される。
+        件数・金額の上限は展開後の値で判定される。
     '''
     return lib.Bet(betDataList, listCount, waitMiliSeconds)
 
 def bet_win5(betData : ST_BET_DATA_WIN5, waitMiliSeconds : int = DEFAULT_WAIT_TIME) -> int:
     '''
-        馬券購入処理実行(WIN5)
+        馬券購入処理実行(WIN5。中央競馬のみ)
+
+        1回の購入上限(50組み合わせ)を超える場合は自動的に分割送信する。
+        waitMiliSeconds は bet と同じく分割送信の間隔(ms)。
     '''
     return lib.BetWin5(betData, waitMiliSeconds)
 
@@ -391,25 +510,52 @@ def bet_win5_auto(mode : int, axisUmaban : str, betCount : int, kingaku : int,
         実際に購入が行われるため、呼び出す前に必ず利用者の確認を取ること。
 
         mode        : WIN5_AUTO_SELECT(2) / WIN5_AUTO_RANDOM(3)
-        axisUmaban  : セレクト時の軸馬番。5レース分をカンマ区切りで指定する(例 "3,0,7,0,12")。
-                      0のレースはサーバが選ぶ。すべて0は指定できない
-                      (ランダムと同じ電文になりサーバに拒否される)。ランダム時は None 可。
-        betCount    : 生成させる点数(1〜50)
-        kingaku     : 1点あたりの購入金額(円。100円単位)
+        axisUmaban  : セレクト時の軸馬番。5レース分をカンマ区切りで指定する(例 "3,0,7,0,0")。
+                      0のレースはサーバが選ぶ。ランダム時は None 可。
+
+                      0(おまかせ)にできるのは 1〜4 レース。次の2つは送信せずに
+                      UNSUCCESS を返す。
+                        ・すべて0 ("0,0,0,0,0")  ランダムと同じ指定になる。
+                          WIN5_AUTO_RANDOM を使うこと
+                        ・0が1つも無い ("3,7,1,5,2")  買い目が1通りに決まり、
+                          依頼した点数を生成できない。bet_win5 で直接指定すること
+        betCount    : 生成させる点数(1〜MAX_WIN5_AUTO_BET_COUNT)。分割送信は行わない
+        kingaku     : 1点あたりの購入金額(円。100円単位)。合計が
+                      MAX_TOTAL_AMOUNT_PER_SEND 円を超える場合は UNSUCCESS を返す
     '''
     axis = axisUmaban.encode('utf-8') if axisUmaban else None
     return lib.BetWin5Auto(mode, axis, betCount, kingaku, year, month, day)
 
-def set_auto_deposit_flag(enable : bool, depositValue : int, confirmTimeout : int = DEFAULT_CONFIRM_TIMEOUT) -> int:
+def set_auto_deposit_flag(enable : bool, depositValue : int = DEPOSIT_DEFAULT_VALUE, \
+                          confirmTimeout : int = DEFAULT_CONFIRM_TIMEOUT) -> int:
     '''
         自動入金機能フラグ設定
+
+        有効にすると bet / bet_win5 実行時に残高不足を検出した場合、
+        自動的に depositValue 円を入金してから購入に移る。
+        入金後、残高への反映を最大 confirmTimeout ミリ秒待機し、
+        タイムアウトした場合は購入を中止する。
+        入金しても残高が購入金額に満たない場合は入金を行わず UNSUCCESS を返す。
+
+        depositValue は100円単位(enable が False の場合は検証しない)。
+        confirmTimeout は deposit / withdraw の反映待機にも使われる。
+        自動入金は deposit と同じ経路のため、即PAT 会員専用という制約も同じ。
     '''
     return lib.SetAutoDepositFlag(enable, depositValue, confirmTimeout)
 
 def get_odds(place : int, raceNo : int, shikibetsu : int, oddsData : ST_ODDS_DATA) -> int:
     '''
-        オッズ取得処理実行(中央競馬・地方競馬に対応)
+        オッズ取得処理実行(中央競馬・地方競馬・海外競馬に対応)
+
         単勝・複勝は基本オッズ、枠連〜三連単は全通りのオッズ表を取得する。
+        オッズは10倍の整数(例: 12.3倍 → 123)。複勝・ワイドは下限を Odds、
+        上限を OddsHigh に格納する。
+
+        海外開催は中央競馬へのログインが必要で、枠が無いため枠連
+        (SHIKIBETSU_BRACKETQUINELLA)を指定すると UNSUCCESS を返す。
+        応援馬券(SHIKIBETSU_WINPLACE)はオッズの式別ではないため指定できない。
+        指定した開催場がその日開催されていない場合も UNSUCCESS を返す。
+
         ネイティブ側で確保されたメモリは本関数内で解放する。
     '''
     tempOddsData = ST_ODDS_DATA_INTERNAL()
@@ -443,11 +589,20 @@ def get_odds(place : int, raceNo : int, shikibetsu : int, oddsData : ST_ODDS_DAT
 
 def get_race_card(place : int, raceNo : int, raceCard : ST_RACECARD_DATA) -> int:
     '''
-        出馬表取得処理実行(中央競馬・地方競馬に対応)
+        出馬表取得処理実行(中央競馬・地方競馬・海外競馬に対応)
+
         各出走馬の枠番・馬番・馬名・性齢・馬体重・騎手・斤量・調教師・
-        単勝人気・単勝/複勝オッズを取得する。
-        あわせて Deadline(発売締切時刻 "HH:MM") と RaceStatus(発売状態 RACE_STATUS_*)
-        を取得する。締切時刻だけでは購入可否が判断できないため両方を参照すること。
+        単勝人気・単勝/複勝オッズを取得する。斤量・オッズは10倍の整数。
+        あわせて RaceName(レース名)、Deadline(発売締切時刻 "HH:MM")、
+        RaceStatus(発売状態 RACE_STATUS_*)を取得する(追加の通信は発生しない)。
+        締切時刻だけでは購入可否が判断できないため RaceStatus も参照すること。
+
+        海外開催は中央競馬へのログインが必要で、I-PAT が返す項目が国内より少ない。
+        取得できるのは Umaban / HorseName / WinPopular / 単勝・複勝オッズ と
+        RaceName / Deadline / RaceStatus のみで、Wakuban / Sex / Age / Weight /
+        JockeyName / Burden / TrainerName は 0 または空文字になる。
+        指定した開催場がその日開催されていない場合は UNSUCCESS を返す。
+
         ネイティブ側で確保されたメモリは本関数内で解放する。
         EntryData の各要素は ST_ENTRY_DETAIL で、馬名等の文字列フィールドは
         UTF-8 の bytes のため利用時に .decode('utf-8') する。
@@ -464,12 +619,9 @@ def get_race_card(place : int, raceNo : int, raceCard : ST_RACECARD_DATA) -> int
     raceCard.EntryCount = tempRaceCardData.EntryCount
     # レース名はUTF-8のbytesのためutf-8でデコードする(OddsTimeはascii)
     raceCard.RaceName = tempRaceCardData.RaceName.decode('utf-8', errors='ignore')
-    # 発売締切時刻("HH:MM")と発売状態。開催メニュー(jg)由来で、海外開催でも取得できる
+    # 発売締切時刻("HH:MM")と発売状態。海外開催でも取得できる
     raceCard.Deadline = tempRaceCardData.Deadline.decode('ascii', errors='ignore')
     raceCard.RaceStatus = tempRaceCardData.RaceStatus
-    # グレードはUTF-8のbytes(「J・GI」に多バイト文字を含む)。開催回数は「第30回」の 30
-    raceCard.Grade = tempRaceCardData.Grade.decode("utf-8", errors="ignore")
-    raceCard.RaceNumber = tempRaceCardData.RaceNumber
 
     # 取得失敗・明細なしはここで解放して戻る
     if (returnValue & 1) != 1 or tempRaceCardData.EntryCount <= 0 or not tempRaceCardData.EntryData:
