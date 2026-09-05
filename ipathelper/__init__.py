@@ -1,7 +1,7 @@
 import os
 import atexit
 import importlib.resources as pkg_resources
-from ctypes import cdll, windll, wintypes, POINTER, c_bool, c_int, c_uint, c_ushort, c_char_p, c_void_p, c_byte, c_long
+from ctypes import cdll, windll, wintypes, POINTER, c_bool, c_int, c_uint, c_ushort, c_char_p, c_void_p, c_ubyte
 from sys import maxsize
 
 from .ipathelper import (
@@ -12,7 +12,8 @@ from .ipathelper import (
     KAISAI_NAGOYA, KAISAI_MONBETSU, KAISAI_MORIOKA, KAISAI_MIZUSAWA,
     KAISAI_URAWA, KAISAI_FUNABASHI, KAISAI_OI, KAISAI_KAWASAKI,
     KAISAI_KASAMATSU, KAISAI_KANAZAWA, KAISAI_KOCHI, KAISAI_SAGA,
-    KAISAI_LONGCHAMP, KAISAI_SHATIN, KAISAI_SANTAANITA, KAISAI_DEAUVILE,
+    KAISAI_LONGCHAMP, KAISAI_SHATIN, KAISAI_SANTAANITA,
+    KAISAI_DEAUVILLE, KAISAI_DEAUVILE,
     KAISAI_CHURCHILLDOWNS, KAISAI_ABDULAZIZ, KAISAI_ASCOT,
     # 定数: 方式
     HOUSHIKI_NORMAL, HOUSHIKI_FORMATION, HOUSHIKI_BOX,
@@ -22,7 +23,7 @@ from .ipathelper import (
     # 定数: 式別
     SHIKIBETSU_WIN, SHIKIBETSU_PLACE, SHIKIBETSU_BRACKETQUINELLA,
     SHIKIBETSU_QUINELLA, SHIKIBETSU_QUINELLAPLACE, SHIKIBETSU_EXACTA,
-    SHIKIBETSU_TRIO, SHIKIBETSU_TRIFECTA,
+    SHIKIBETSU_TRIO, SHIKIBETSU_TRIFECTA, SHIKIBETSU_WINPLACE,
     # 定数: オッズ状態
     ODDS_STATUS_NORMAL, ODDS_STATUS_CANCEL, ODDS_STATUS_UNACQUIRED,
     # 定数: レースの発売状態(ST_RACECARD_DATA.RaceStatus)
@@ -30,7 +31,8 @@ from .ipathelper import (
     RACE_STATUS_BEFORE_SALE, RACE_STATUS_UNKNOWN,
     # 定数: その他
     DAYTYPE_TODAY, DAYTYPE_BEFORE,
-    BETFLAG_NORMAL, BETFLAG_WIN5, BETFLAG_INTERNAL,
+    BETFLAG_NORMAL, BETFLAG_WIN5, BETFLAG_INTERNATIONAL, BETFLAG_INTERNAL,
+    DECISIONFLAG_PARSE_FAILED,
     DECISIONFLAG_DEFAULT, DECISIONFLAG_NORMAL, DECISIONFLAG_DEADLINE,
     DECISIONFLAG_CANCEL, DECISIONFLAG_FLATMATESCANCEL, DECISIONFLAG_HIT,
     DECISIONFLAG_MISS, DECISIONFLAG_BACK, DECISIONFLAG_PARTCANCEL,
@@ -39,7 +41,12 @@ from .ipathelper import (
     WEEKDAY_THURSDAY, WEEKDAY_FRIDAY, WEEKDAY_SATURDAY,
     SUCCESS, UNSUCCESS, FAILED_CHUOU, FAILED_CHIHOU,
     FAILED_COMMUNICATE_CHUOU, FAILED_COMMUNICATE_CHIHOU,
-    DEFAULT_RETRY_COUNT, DEFAULT_WAIT_TIME, DEFAULT_CONFIRM_TIMEOUT,
+    FAILED_OUT_OF_SERVICE,
+    # 定数: 列数・上限
+    UMABAN_COLUMN_COUNT, UMABAN_TICKET_COLUMN_COUNT, WIN5_RACE_COUNT,
+    MAX_TOTAL_AMOUNT_PER_SEND, MAX_WIN5_AUTO_BET_COUNT,
+    DEFAULT_RETRY_COUNT, DEPOSIT_DEFAULT_VALUE, DEFAULT_CONFIRM_TIMEOUT,
+    DEFAULT_BET_INTERVAL, DEFAULT_WAIT_TIME,
     # 定数: WIN5 の購入方式
     WIN5_AUTO_SELECT, WIN5_AUTO_RANDOM,
     # 定数: ログ
@@ -113,32 +120,36 @@ def _init():
     _core.lib.ReleasePurchaseData.restype = None
     _core.lib.ReleasePurchaseData.argtypes = [POINTER(ST_PURCHASE_DATA_INTERNAL)]
 
+    # 第1引数(開催場)はネイティブ側が unsigned short。
+    # 残りの1バイト引数は unsigned char のため c_ubyte を使う。
     _core.lib.GetBetInstance.restype = c_uint
-    _core.lib.GetBetInstance.argtypes = [c_byte, c_byte, c_ushort, c_byte, c_byte, c_byte, c_byte, c_uint, c_char_p, c_void_p]
+    _core.lib.GetBetInstance.argtypes = [c_ushort, c_ubyte, c_ushort, c_ubyte, c_ubyte, c_ubyte, c_ubyte, c_uint, c_char_p, c_void_p]
 
     _core.lib.Bet.restype = c_uint
     _core.lib.Bet.argtypes = [c_void_p, c_ushort, c_ushort]
 
     _core.lib.GetBetInstanceWin5.restype = c_uint
-    _core.lib.GetBetInstanceWin5.argtypes = [c_uint, c_ushort, c_byte, c_byte, c_char_p, c_void_p]
+    _core.lib.GetBetInstanceWin5.argtypes = [c_uint, c_ushort, c_ubyte, c_ubyte, c_char_p, c_void_p]
 
     _core.lib.BetWin5.restype = c_uint
     _core.lib.BetWin5.argtypes = [ST_BET_DATA_WIN5, c_ushort]
 
     _core.lib.BetWin5Auto.restype = c_uint
-    _core.lib.BetWin5Auto.argtypes = [c_byte, c_char_p, c_ushort, c_uint, c_ushort, c_byte, c_byte]
+    _core.lib.BetWin5Auto.argtypes = [c_ubyte, c_char_p, c_ushort, c_uint, c_ushort, c_ubyte, c_ubyte]
 
+    # 入金額はネイティブ側が unsigned int。c_ushort にすると 65,535 円を超える
+    # 自動入金額が切り捨てられる。
     _core.lib.SetAutoDepositFlag.restype = c_uint
-    _core.lib.SetAutoDepositFlag.argtypes = [c_bool, c_ushort, c_ushort]
+    _core.lib.SetAutoDepositFlag.argtypes = [c_bool, c_uint, c_ushort]
 
     _core.lib.GetOdds.restype = c_uint
-    _core.lib.GetOdds.argtypes = [c_ushort, c_byte, c_byte, c_void_p]
+    _core.lib.GetOdds.argtypes = [c_ushort, c_ubyte, c_ubyte, c_void_p]
 
     _core.lib.ReleaseOddsData.restype = None
     _core.lib.ReleaseOddsData.argtypes = [POINTER(ST_ODDS_DATA_INTERNAL)]
 
     _core.lib.GetRaceCard.restype = c_uint
-    _core.lib.GetRaceCard.argtypes = [c_ushort, c_byte, c_void_p]
+    _core.lib.GetRaceCard.argtypes = [c_ushort, c_ubyte, c_void_p]
 
     _core.lib.ReleaseRaceCardData.restype = None
     _core.lib.ReleaseRaceCardData.argtypes = [POINTER(ST_RACECARD_DATA_INTERNAL)]
@@ -158,9 +169,23 @@ def _init():
 def _uninit():
     '''
         モジュールのファイナライズ（プログラム終了時に自動実行）
+
+        DLL を解放する前にログコールバックを解除する。解除せずに解放すると、
+        DLL 内から既に無効な Python のコールバックを呼ぶ可能性がある。
+        SetLogCallback は DLL 側で排他ロックを取るため、戻った時点で
+        実行中のコールバックは存在しない。
+
+        なお logout() はここでは呼ばない。終了処理で通信を始めると
+        プロセスの終了が長時間ブロックされ得るため、サーバ側のセッションを
+        確実に閉じたい場合は利用者側で logout() を呼ぶこと。
     '''
     if _core.lib is None:
         return
+
+    try:
+        set_log_callback(None)
+    except Exception:
+        pass    # 解除に失敗しても解放は続ける
 
     libraryHandle = _core.lib._handle
     del _core.lib
