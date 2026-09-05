@@ -194,6 +194,25 @@ class ST_RACECARD_DATA:
         self.Deadline = ""                       # 発売締切時刻 "HH:MM"(取得できない場合は空文字)
         self.RaceStatus = RACE_STATUS_UNKNOWN    # 発売状態(RACE_STATUS_*)
 
+class ST_KAISAI_ITEM:
+    '''
+        開催中の開催場1つ分(利用者向け)
+    '''
+    def __init__(self):
+        self.Place = 0       # 開催場(KAISAI_*)
+        self.RaceCount = 0   # レース数
+        # レース一覧(ST_KAISAI_RACE のリスト)。レース番号順に並ぶが欠番があり得るため、
+        # レース番号は各要素の RaceNo で判断すること(添字+1 と一致するとは限らない)。
+        self.RaceData = []
+
+class ST_KAISAI_DATA:
+    '''
+        本日の開催場一覧(利用者向け)
+    '''
+    def __init__(self):
+        self.KaisaiCount = 0  # 開催場数
+        self.KaisaiData = []  # 開催場一覧(ST_KAISAI_ITEM のリスト)
+
 class ST_NOTICE_DATA:
     def __init__(self):
         self.Message = ""       # 強制表示お知らせ本文。無い場合は空文字
@@ -278,6 +297,23 @@ class ST_NOTICE_ITEM(Structure):
 class ST_NOTICE_DATA_INTERNAL(Structure):
     _fields_ = [("Message", c_char * 2048), ("NoticeNo", c_char * 16), \
         ("NoticeType", c_char * 8), ("ItemCount", c_uint), ("ItemData", c_void_p)]
+
+class ST_KAISAI_RACE(Structure):
+    '''
+        開催中のレース1つ分。
+
+        Deadline / RaceName は UTF-8 の bytes のため、利用時に .decode('utf-8') する。
+        RaceStatus は RACE_STATUS_*(発売中/発売終了/発売中止/発売前/取得できなかった)。
+        締切時刻だけでは購入可否が判断できないため RaceStatus も併せて参照すること。
+    '''
+    _fields_ = [("RaceNo", c_ubyte), ("RaceStatus", c_ubyte), \
+        ("Deadline", c_char * 8), ("RaceName", c_char * 128)]
+
+class ST_KAISAI_ITEM_INTERNAL(Structure):
+    _fields_ = [("Place", c_ushort), ("RaceCount", c_uint), ("RaceData", c_void_p)]
+
+class ST_KAISAI_DATA_INTERNAL(Structure):
+    _fields_ = [("KaisaiCount", c_uint), ("KaisaiData", c_void_p)]
 
 
 def set_log_callback(handler, minLevel : int = LOG_LEVEL_INFO) -> None:
@@ -683,5 +719,75 @@ def get_notice(notice : ST_NOTICE_DATA) -> int:
         notice.ItemData.append(ST_NOTICE_ITEM.from_buffer(oneItemBytes, 0))
 
     lib.ReleaseNoticeData(byref(tempNoticeData))
+
+    return returnValue
+
+def get_kaisai_list(kaisaiData : ST_KAISAI_DATA) -> int:
+    '''
+        本日開催されている開催場の一覧を取得する
+
+        開催場ごとに、レース番号・発売締切時刻・発売状態・レース名も併せて返す。
+        ログイン済みの系統(中央・地方)と、中央にログインしていれば海外を対象とする。
+
+        系統ごとに1回ずつ、最大3回の通信で全開催場が得られるため、
+        「どの開催場が開催中か」を調べるために get_race_card を
+        開催場の数だけ呼ぶ必要はない。
+
+        片方の系統だけ失敗した場合は、取得できた分を返したうえで
+        FAILED_CHUOU / FAILED_CHIHOU を立てる(SUCCESS と同時に立つ)。
+        開催が1つも無い場合は KaisaiCount が 0 で成功を返す。
+
+        KaisaiData の各要素は ST_KAISAI_ITEM で、その RaceData の各要素は
+        ST_KAISAI_RACE。Deadline / RaceName は UTF-8 の bytes のため
+        利用時に .decode('utf-8') する。
+
+        ネイティブ側で確保されたメモリは本関数内で解放する。
+    '''
+    tempKaisaiData = ST_KAISAI_DATA_INTERNAL()
+
+    returnValue = lib.GetKaisaiList(byref(tempKaisaiData))
+
+    kaisaiData.KaisaiCount = tempKaisaiData.KaisaiCount
+
+    # 取得失敗・開催なしはここで解放して戻る
+    if (returnValue & 1) != 1 or tempKaisaiData.KaisaiCount <= 0 or not tempKaisaiData.KaisaiData:
+        kaisaiData.KaisaiCount = 0
+        lib.ReleaseKaisaiData(byref(tempKaisaiData))
+        return returnValue
+
+    # ネイティブ側の開催場配列をコピー(解放前に取り出す)
+    allItemBytes = bytearray(string_at(tempKaisaiData.KaisaiData, \
+        sizeof(ST_KAISAI_ITEM_INTERNAL) * tempKaisaiData.KaisaiCount))
+
+    for i in range(tempKaisaiData.KaisaiCount):
+        oneItemBytes = bytearray(sizeof(ST_KAISAI_ITEM_INTERNAL))
+        for j in range(sizeof(ST_KAISAI_ITEM_INTERNAL)):
+            oneItemBytes[j] = allItemBytes[j + i * sizeof(ST_KAISAI_ITEM_INTERNAL)]
+
+        oneItem = ST_KAISAI_ITEM_INTERNAL.from_buffer(oneItemBytes, 0)
+
+        tempItem = ST_KAISAI_ITEM()
+        tempItem.Place = oneItem.Place
+        tempItem.RaceCount = oneItem.RaceCount
+
+        # レースを持たない開催場があっても後続の開催場は正常に返るため打ち切らない
+        if oneItem.RaceCount <= 0 or not oneItem.RaceData:
+            tempItem.RaceCount = 0
+            kaisaiData.KaisaiData.append(tempItem)
+            continue
+
+        allRaceBytes = bytearray(string_at(oneItem.RaceData, \
+            sizeof(ST_KAISAI_RACE) * oneItem.RaceCount))
+
+        for r in range(oneItem.RaceCount):
+            oneRaceBytes = bytearray(sizeof(ST_KAISAI_RACE))
+            for j in range(sizeof(ST_KAISAI_RACE)):
+                oneRaceBytes[j] = allRaceBytes[j + r * sizeof(ST_KAISAI_RACE)]
+
+            tempItem.RaceData.append(ST_KAISAI_RACE.from_buffer(oneRaceBytes, 0))
+
+        kaisaiData.KaisaiData.append(tempItem)
+
+    lib.ReleaseKaisaiData(byref(tempKaisaiData))
 
     return returnValue

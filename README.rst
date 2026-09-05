@@ -1318,6 +1318,78 @@ get_race_card
            print(f"  {e.Umaban:2d}番 {name} {sex}{e.Age} "
                  f"斤量{e.Burden / 10.0:.1f} 騎手:{jockey} 単勝:{win} 人気:{e.WinPopular}")
 
+get_kaisai_list
+===============
+
+本日開催されている開催場の一覧を取得します（**中央競馬・地方競馬・海外競馬に対応**）。
+開催場ごとに、レース番号・発売締切時刻・発売状態・レース名も併せて返します。
+
+.. code-block:: python
+
+   kaisaiData = ST_KAISAI_DATA()
+   ret = get_kaisai_list(kaisaiData)
+
+- ログイン済みの系統を対象とし、海外は中央にログインしていれば含まれます。
+- **系統ごとに1回ずつ、最大3回の通信で全開催場が得られます。**
+  「どの開催場が開催中か」を調べるために ``get_race_card()`` を開催場の数だけ呼ぶ必要はありません。
+- 片方の系統だけ失敗した場合は、**取得できた分を返したうえで** ``FAILED_CHUOU`` /
+  ``FAILED_CHIHOU`` を立てます（``SUCCESS`` と同時に立ちます）。
+- 開催が1つも無い場合は ``KaisaiCount`` が 0 で成功します。
+- ネイティブ側のメモリは関数内部で自動解放されます。利用者側での解放は不要です。
+
+``kaisaiData.KaisaiData`` の各要素（ST_KAISAI_ITEM）:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - フィールド名
+     - 説明
+   * - ``Place``
+     - 開催場（KAISAI 定数）
+   * - ``RaceCount``
+     - レース数
+   * - ``RaceData``
+     - レース一覧（ST_KAISAI_RACE のリスト）
+
+``RaceData`` の各要素（ST_KAISAI_RACE）:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - フィールド名
+     - 説明
+   * - ``RaceNo``
+     - レース番号（1始まり）
+   * - ``RaceStatus``
+     - 発売状態（``RACE_STATUS_*``）
+   * - ``Deadline``
+     - 発売締切時刻 "HH:MM"（**bytes**\ 。取得できない場合は空）
+   * - ``RaceName``
+     - レース名（**bytes**\ 。取得できない場合は空。**海外開催でも取得できます**\ ）
+
+.. note::
+   **レース番号は** ``RaceNo`` **で判断してください。** ``RaceData`` はレース番号順に
+   並びますが、欠番があり得るため「添字 + 1」と一致するとは限りません。
+
+   締切時刻だけでは購入可否が判断できないため、``RaceStatus`` も併せて参照してください。
+
+.. code-block:: python
+
+   from ipathelper import *
+
+   kaisaiData = ST_KAISAI_DATA()
+   ret = get_kaisai_list(kaisaiData)
+   if (ret & 1) == 1:
+       print(f"本日の開催: {kaisaiData.KaisaiCount} 場")
+       for item in kaisaiData.KaisaiData:
+           print(f"開催場コード {item.Place} ({item.RaceCount}R)")
+           for race in item.RaceData:
+               name = race.RaceName.decode('utf-8')
+               deadline = race.Deadline.decode('utf-8')
+               print(f"  {race.RaceNo:2d}R {deadline:5s} 状態={race.RaceStatus} {name}")
+
 get_notice
 ==========
 

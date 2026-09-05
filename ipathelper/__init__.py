@@ -59,11 +59,13 @@ from .ipathelper import (
     ST_ODDS_DATA, ST_ODDS_DETAIL, ST_ODDS_DATA_INTERNAL,
     ST_RACECARD_DATA, ST_ENTRY_DETAIL, ST_RACECARD_DATA_INTERNAL,
     ST_NOTICE_DATA, ST_NOTICE_ITEM, ST_NOTICE_DATA_INTERNAL,
+    ST_KAISAI_DATA, ST_KAISAI_ITEM, ST_KAISAI_RACE,
+    ST_KAISAI_DATA_INTERNAL, ST_KAISAI_ITEM_INTERNAL,
     # 関数
     login, logout, deposit, withdraw, get_purchase_data,
     get_bet_instance, get_bet_instance_win5, bet, bet_win5,
     set_auto_deposit_flag, get_odds, get_race_card, get_notice,
-    set_log_callback, bet_win5_auto,
+    set_log_callback, bet_win5_auto, get_kaisai_list,
 )
 import ipathelper.ipathelper as _core
 
@@ -159,6 +161,12 @@ def _init():
 
     _core.lib.ReleaseNoticeData.restype = None
     _core.lib.ReleaseNoticeData.argtypes = [POINTER(ST_NOTICE_DATA_INTERNAL)]
+
+    _core.lib.GetKaisaiList.restype = c_uint
+    _core.lib.GetKaisaiList.argtypes = [c_void_p]
+
+    _core.lib.ReleaseKaisaiData.restype = None
+    _core.lib.ReleaseKaisaiData.argtypes = [POINTER(ST_KAISAI_DATA_INTERNAL)]
 
     if maxsize > 2 ** 32:
         windll.kernel32.FreeLibrary.argtypes = [wintypes.HMODULE]
